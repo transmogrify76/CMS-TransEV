@@ -1,8 +1,7 @@
 // src/components/SignIn.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { jwtDecode } from 'jwt-decode'; // Updated import// Import correctly
-import { TextField, Button, Container, Typography, Box } from '@mui/material';
+import {jwtDecode} from 'jwt-decode'; // Ensure correct import
 
 const SignIn = () => {
   const [phone, setPhone] = useState('');
@@ -40,35 +39,41 @@ const SignIn = () => {
   };
 
   return (
-    <Container maxWidth="xs">
-      <Box display="flex" flexDirection="column" justifyContent="center" height="100vh" alignItems="center">
-        <Typography variant="h4" gutterBottom>
-          Admin Sign In
-        </Typography>
-        <form onSubmit={handleSignIn}>
-          <TextField
-            label="Phone"
-            variant="outlined"
-            fullWidth
-            margin="normal"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-          <TextField
-            label="Password"
-            type="password"
-            variant="outlined"
-            fullWidth
-            margin="normal"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <Button type="submit" variant="contained" color="primary" fullWidth sx={{ mt: 2 }}>
+    <div className="flex items-center justify-center h-screen bg-gray-900">
+      <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full border border-gray-700">
+        <h1 className="text-3xl font-bold text-blue-400 mb-8 text-center">Sign In</h1>
+        <form onSubmit={handleSignIn} className="space-y-6">
+          <div>
+            <label htmlFor="phone" className="block text-sm font-medium text-gray-300">Phone</label>
+            <input
+              id="phone"
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="mt-1 block w-full px-4 py-2 border border-gray-600 bg-gray-700 text-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Enter your phone number"
+            />
+          </div>
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-300">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 block w-full px-4 py-2 border border-gray-600 bg-gray-700 text-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Enter your password"
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full py-3 px-4 bg-blue-500 text-white font-semibold rounded-lg shadow-md hover:bg-blue-600 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
             Sign In
-          </Button>
+          </button>
         </form>
-      </Box>
-    </Container>
+      </div>
+    </div>
   );
 };
 
