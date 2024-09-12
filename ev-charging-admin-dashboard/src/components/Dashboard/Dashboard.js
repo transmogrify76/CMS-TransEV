@@ -19,7 +19,7 @@ const states = [
 ];
 
 const Dashboard = () => {
-  const [userName, setUserName] = useState('User'); // Default to 'User'
+  const [userName, setUserName] = useState('User'); 
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,20 +28,19 @@ const Dashboard = () => {
       if (token) {
         try {
           const decodedToken = jwtDecode(token);
-          setUserName(decodedToken.firstname || 'User'); // Set actual user name from token
+          setUserName(decodedToken.firstname || 'User'); 
         } catch (error) {
           console.error('Failed to decode token:', error);
-          navigate('/signin'); // Redirect if token is invalid
+          navigate('/signin'); 
         }
       } else {
-        navigate('/signin'); // Redirect if no token
+        navigate('/signin'); 
       }
     };
 
     getUserDataFromToken();
   }, [navigate]);
 
-  // Dummy data for demonstration
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedState, setSelectedState] = useState('');
   const [revenue, setRevenue] = useState('$0.00');
@@ -113,7 +112,6 @@ const Dashboard = () => {
             </select>
           </div>
 
-          {/* Key Metrics Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-gradient-to-r from-green-500 to-green-600 p-4 rounded-lg text-white shadow-lg transition-transform transform hover:scale-105">
               <h2 className="text-lg font-semibold">Revenue</h2>
@@ -134,7 +132,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Charger Status Section */}
         <div className="bg-gray-800 p-6 rounded-lg shadow-md">
           <div className="flex justify-between items-center mb-4">
             <select className="form-select bg-gray-700 border border-gray-600 text-gray-200 py-2 px-3 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -155,7 +152,6 @@ const Dashboard = () => {
             <span className="font-medium text-gray-300">Error ({errorCount})</span>
           </div>
 
-          {/* Search and Charger Cards */}
           <div className="mt-4">
             <input
               type="text"

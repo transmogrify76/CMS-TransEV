@@ -20,7 +20,7 @@ const AddChargerForm = () => {
     charger_use_type: '',
     twenty_four_seven_open_status: '',
     charger_image: '',
-    chargerbuyer: '', // Assuming this is an email or user ID
+    chargerbuyer: '', 
   });
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -56,7 +56,7 @@ const AddChargerForm = () => {
       if (response.ok) {
         const data = await response.json();
         setMessage(data.message);
-        setOcppurl(data.ocppurl || ''); // Set the OCPP URL if available
+        setOcppurl(data.ocppurl || ''); 
       } else {
         const errorData = await response.json();
         setMessage(errorData.message || 'Error creating charger unit.');
