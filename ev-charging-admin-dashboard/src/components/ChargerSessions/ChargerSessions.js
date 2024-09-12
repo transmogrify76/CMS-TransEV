@@ -81,7 +81,7 @@ const ChargerList = () => {
         <div className="flex items-center mb-6 space-x-4">
           <select className="border border-gray-600 rounded py-2 px-4 bg-gray-700 text-gray-200 focus:ring-2 focus:ring-blue-500">
             <option value="All Network">All Network</option>
-            {/* Add more options as needed */}
+
           </select>
           <select className="border border-gray-600 rounded py-2 px-4 bg-gray-700 text-gray-200 focus:ring-2 focus:ring-blue-500">
             <option value="All">All ({chargers.length})</option>

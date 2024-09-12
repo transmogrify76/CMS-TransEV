@@ -1,16 +1,7 @@
 // src/components/Sidebar.js
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  FaArrowRight,
-  FaArrowLeft,
-  FaTachometerAlt,
-  FaBatteryFull,
-  FaWallet,
-  FaCar,
-  FaBell,
-  FaHeadset,
-} from 'react-icons/fa';
+import {FaArrowRight,FaArrowLeft,FaTachometerAlt,FaBatteryFull,FaWallet,FaCar,FaBell,FaHeadset,} from 'react-icons/fa';
 
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -25,7 +16,7 @@ const Sidebar = () => {
         isExpanded ? 'w-64' : 'w-20'
       }`}
     >
-      {/* Toggle Button */}
+     
       <div
         className="flex justify-end mb-4 cursor-pointer"
         onClick={toggleExpand}
@@ -37,7 +28,6 @@ const Sidebar = () => {
         )}
       </div>
 
-      {/* Menu Items */}
       <ul className="flex flex-col gap-4">
         <li className="nav-item">
           <Link

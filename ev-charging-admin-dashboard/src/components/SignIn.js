@@ -1,7 +1,7 @@
 // src/components/SignIn.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {jwtDecode} from 'jwt-decode'; // Ensure correct import
+import {jwtDecode} from 'jwt-decode'; 
 
 const SignIn = () => {
   const [phone, setPhone] = useState('');
@@ -25,10 +25,10 @@ const SignIn = () => {
 
       if (response.ok) {
         const { authtoken } = data;
-        localStorage.setItem('token', authtoken); // Store token in local storage
+        localStorage.setItem('token', authtoken); 
         const decodedToken = jwtDecode(authtoken);
         const userId = decodedToken.userid;
-        navigate(`/dashboard/${userId}`); // Navigate to user-specific dashboard
+        navigate(`/dashboard/${userId}`); 
       } else {
         alert(data.message);
       }

@@ -23,12 +23,8 @@ const DriversVehicles = () => {
   return (
     <div className="flex">
       <Sidebar />
-
-      {/* Main Content */}
       <div className="flex-1 p-6 bg-gray-100 min-h-screen">
         <h1 className="text-2xl font-bold mb-4">Drivers & Vehicles / Manage Drivers</h1>
-
-        {/* Tabs for Drivers and Vehicles */}
         <div className="mb-4 border-b border-gray-200">
           <nav className="-mb-px flex space-x-8">
             <button
@@ -56,7 +52,6 @@ const DriversVehicles = () => {
           </nav>
         </div>
 
-        {/* Toolbar Section */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Driver List (0)</h2>
           <div className="flex items-center space-x-2">
@@ -92,7 +87,6 @@ const DriversVehicles = () => {
               <Add />
             </button>
 
-            {/* Dropdown Menu */}
             {anchorEl && (
               <div className="absolute bg-white shadow rounded mt-2 p-2">
                 <button onClick={handleMenuClose} className="block w-full text-left px-4 py-2 text-sm">
@@ -109,7 +103,6 @@ const DriversVehicles = () => {
           </div>
         </div>
 
-        {/* Empty State for the Driver List */}
         <div className="flex flex-col items-center justify-center h-64 border border-gray-200 rounded-lg">
           <img
             src="https://img.icons8.com/ios/50/000000/no-data.png"
