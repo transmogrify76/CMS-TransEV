@@ -4,7 +4,11 @@ module.exports = {
     "./src/**/*.{js,jsx,ts,tsx}", // Adjust paths based on your project structure
   ],
   theme: {
-    extend: {},
+    extend: {colors: {
+      
+      'matte-black': '#2b2b2b',
+    },
   },
   plugins: [],
+}
 };

@@ -15,4 +15,16 @@ body {
   code {
     font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
   }
- 
+ /* Light mode (default) */
+body.light {
+  background-color: white;
+  color: black;
+}
+
+/* Dark mode */
+body.dark {
+  background-color: #121212;
+  color: white;
+}
+
+/* Additional styles can go here for buttons, headers, etc. */

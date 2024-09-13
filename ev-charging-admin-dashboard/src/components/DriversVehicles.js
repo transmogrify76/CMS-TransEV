@@ -1,7 +1,7 @@
 // src/DriversVehicles.js
 
 import React, { useState } from 'react';
-import Sidebar from './Sidebar/Sidebar'; 
+import Sidebar from './Sidebar'; 
 import { Settings, Refresh, Add, Search } from '@mui/icons-material';
 
 const DriversVehicles = () => {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Sidebar from './Sidebar/Sidebar';
+import Sidebar from './Sidebar';
 
 const AddChargerForm = () => {
   const [formData, setFormData] = useState({
@@ -19,8 +19,9 @@ const AddChargerForm = () => {
     full_address: '',
     charger_use_type: '',
     twenty_four_seven_open_status: '',
-    charger_image: '',
-    chargerbuyer: '', 
+    charger_image: '', // Handle image upload separately
+    chargerbuyer: '',
+    chargeridentity: '',
   });
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -30,6 +31,17 @@ const AddChargerForm = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, charger_image: reader.result });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleNext = () => {
@@ -48,7 +60,7 @@ const AddChargerForm = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apiauthkey': `aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru`, 
+          'apiauthkey': 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru',
         },
         body: JSON.stringify(formData),
       });
@@ -56,7 +68,7 @@ const AddChargerForm = () => {
       if (response.ok) {
         const data = await response.json();
         setMessage(data.message);
-        setOcppurl(data.ocppurl || ''); 
+        setOcppurl(data.ocppurl || '');
       } else {
         const errorData = await response.json();
         setMessage(errorData.message || 'Error creating charger unit.');
@@ -69,7 +81,7 @@ const AddChargerForm = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-900">
-      <Sidebar/>
+      <Sidebar />
       
       <main className="flex-1 p-6 bg-gray-800 text-gray-200">
         <h2 className="text-2xl font-bold mb-4">Add Charger Unit</h2>
@@ -287,24 +299,6 @@ const AddChargerForm = () => {
                   className="p-2 rounded bg-gray-700 border border-gray-600"
                 />
               </div>
-              <button
-                type="button"
-                onClick={handlePrev}
-                className="bg-gray-600 text-white py-2 px-4 rounded hover:bg-gray-700 mr-2"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={handleNext}
-                className="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700"
-              >
-                Next
-              </button>
-            </>
-          )}
-          {currentStep === 4 && (
-            <>
               <div className="flex flex-col mb-4">
                 <label className="text-lg font-medium mb-1" htmlFor="charger_use_type">
                   Charger Use Type:
@@ -338,9 +332,8 @@ const AddChargerForm = () => {
                 <input
                   id="charger_image"
                   name="charger_image"
-                  type="text"
-                  value={formData.charger_image}
-                  onChange={handleChange}
+                  type="file"
+                  onChange={handleFileChange}
                   className="p-2 rounded bg-gray-700 border border-gray-600"
                 />
               </div>
@@ -353,6 +346,19 @@ const AddChargerForm = () => {
                   name="chargerbuyer"
                   type="text"
                   value={formData.chargerbuyer}
+                  onChange={handleChange}
+                  className="p-2 rounded bg-gray-700 border border-gray-600"
+                />
+              </div>
+              <div className="flex flex-col mb-4">
+                <label className="text-lg font-medium mb-1" htmlFor="chargeridentity">
+                  Charger Identity:
+                </label>
+                <input
+                  id="chargeridentity"
+                  name="chargeridentity"
+                  type="text"
+                  value={formData.chargeridentity}
                   onChange={handleChange}
                   className="p-2 rounded bg-gray-700 border border-gray-600"
                 />
@@ -373,11 +379,14 @@ const AddChargerForm = () => {
             </>
           )}
         </form>
-
         {message && (
-          <div className="mt-4">
-            <p className={`text-${ocppurl ? 'green' : 'red'}-400`}>{message}</p>
-            {ocppurl && <p className="text-blue-400">OCPP URL: {ocppurl}</p>}
+          <div className="mt-4 p-2 bg-gray-700 border border-gray-600 rounded">
+            {message}
+            {ocppurl && (
+              <div className="mt-2 p-2 bg-gray-800 rounded">
+                <strong>OCPP URL:</strong> {ocppurl}
+              </div>
+            )}
           </div>
         )}
       </main>
