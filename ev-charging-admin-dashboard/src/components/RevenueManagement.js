@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, TextField } from '@mui/material';
+import { Typography, Button, TextField } from '@mui/material';
 import Sidebar from './Sidebar';
 
 const RevenueManagement = () => {
@@ -8,23 +8,30 @@ const RevenueManagement = () => {
   ];
 
   return (
-    <div className="flex min-h-screen bg-white text-gray-800">
+    <div className="flex min-h-screen bg-gray-50 text-gray-800">
       <Sidebar />
       <div className="flex-1 p-6 max-w-full overflow-hidden">
-        <Typography variant="h4" className="text-3xl font-semibold mb-6">
-          Revenue Management / Overview
-        </Typography>
-
-        <div className="flex items-center justify-between mb-6">
-          <Typography variant="h6" className="text-lg font-medium">
-            Total Revenue ₹1.10
+        <div className="flex justify-between items-center mb-4">
+          <Typography variant="h4" className="text-2xl font-bold text-gray-700">
+            Revenue Management / Overview
           </Typography>
-          <Button className="bg-blue-600 text-white hover:bg-blue-700 transition-colors py-2 px-4 rounded">
-            May 2024
+          <Button className="bg-blue-600 text-white hover:bg-blue-700 transition-all py-2 px-4 rounded-md">
+            Sep 2024
           </Button>
         </div>
 
-        <div className="flex items-center mb-6 space-x-4">
+        <div className="bg-white p-6 rounded-lg shadow-lg mb-6">
+          <div className="flex justify-between items-center">
+            <Typography variant="h6" className="text-lg font-medium text-gray-700">
+              Total Revenue ₹1.10
+            </Typography>
+            <Button className="bg-indigo-500 text-white hover:bg-indigo-600 transition-colors py-2 px-4 rounded-lg">
+              May 2024
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4 mb-6">
           <TextField
             label="Search by transaction id, charger id, etc."
             variant="outlined"
@@ -39,43 +46,57 @@ const RevenueManagement = () => {
           </select>
         </div>
 
-        <div className="bg-white shadow-md rounded-lg overflow-hidden">
-          <TableContainer component={Paper} className="bg-gray-200">
-            <Table>
-              <TableHead>
-                <TableRow className="bg-gray-700 text-gray-200">
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">TRANSACTION ID</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">PAYMENT STATUS</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">BILLED AMOUNT</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">CHARGER ID</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">HUB</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">TARIFF</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">USAGE (kWh)</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">Owner</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">HOST DETAILS</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">DRIVER DETAILS</TableCell>
-                  <TableCell className="text-left text-xs font-medium uppercase tracking-wider px-4 py-3">TIMESTAMP</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {transactions.map((row) => (
-                  <TableRow key={row.id} className="bg-white text-gray-800">
-                    <TableCell className="px-4 py-3 text-sm">{row.id}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.status}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.amount}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.charger}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.hub}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.tariff}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.usage}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.owner}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.hostDetails}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.driverDetails}</TableCell>
-                    <TableCell className="px-4 py-3 text-sm">{row.timestamp}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+        <div className="bg-white shadow-md rounded-lg overflow-auto">
+          <div className="flex justify-between mb-2 px-4">
+            <Typography variant="h6" className="text-lg font-medium text-gray-700">
+              Transactions (1)
+            </Typography>
+          </div>
+          <table className="min-w-full table-auto bg-white">
+            <thead className="bg-gray-700 text-white">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Transaction ID</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Payment Status</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Billed Amount</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Charger ID</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Hub</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Tariff</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Usage (kWh)</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Owner</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Host Details</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Driver Details</th>
+                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody className="bg-gray-50 divide-y divide-gray-200">
+              {transactions.map((row, index) => (
+                <tr key={row.id} className="text-gray-800">
+                  <td className="px-4 py-2 text-sm">{index + 1}. {row.id}</td>
+                  <td className="px-4 py-2 text-sm">{row.status}</td>
+                  <td className="px-4 py-2 text-sm">{row.amount}</td>
+                  <td className="px-4 py-2 text-sm">{row.charger}</td>
+                  <td className="px-4 py-2 text-sm">{row.hub}</td>
+                  <td className="px-4 py-2 text-sm">{row.tariff}</td>
+                  <td className="px-4 py-2 text-sm">{row.usage}</td>
+                  <td className="px-4 py-2 text-sm">{row.owner}</td>
+                  <td className="px-4 py-2 text-sm">{row.hostDetails}</td>
+                  <td className="px-4 py-2 text-sm">{row.driverDetails}</td>
+                  <td className="px-4 py-2 text-sm">{row.timestamp}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-center items-center bg-white mt-6 py-8 rounded-lg shadow-lg">
+          <div className="text-center">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2m-6 0h6" />
+            </svg>
+            <Typography variant="h6" className="text-gray-600 mt-2">
+              No Data Found
+            </Typography>
+          </div>
         </div>
       </div>
     </div>
