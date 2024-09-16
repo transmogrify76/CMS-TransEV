@@ -1,50 +1,113 @@
-// src/DriversVehicles.js
-
-import React, { useState } from 'react';
-import Sidebar from './Sidebar'; 
-import { Settings, Refresh, Add, Search } from '@mui/icons-material';
+import React, { useState, useEffect } from 'react';
+import Sidebar from './Sidebar';
+import { Settings, Refresh, Add, Search, ArrowDropDown } from '@mui/icons-material';
+import axios from 'axios';
+import {jwtDecode} from 'jwt-decode';
 
 const DriversVehicles = () => {
-  const [tabValue, setTabValue] = useState(0);
-  const [anchorEl, setAnchorEl] = useState(null);
+  const [tabValue, setTabValue] = useState(0); // 0 for Drivers, 1 for Vehicles
+  const [anchorEl, setAnchorEl] = useState(null); // for Add dropdown
+  const [monthDropdown, setMonthDropdown] = useState(false); // for Month dropdown
+  const [driverData, setDriverData] = useState([]); // to hold drivers data
+  const [vehicleData, setVehicleData] = useState([]); // to hold vehicles data
+  const [loading, setLoading] = useState(false);
 
-  const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
+  // Define fetchData function
+  const fetchData = async () => {
+    const apiKey = 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru'; // Provided API key
+    const token = localStorage.getItem('token'); // Retrieve token from local storage
+
+    if (!token) {
+      console.error("Error: Token is null or undefined.");
+      return; // Optionally, you could set an error state here and show a message to the user
+    }
+
+    try {
+      // Decode token to extract userId
+      const decodedToken = jwtDecode(token);
+      const userId = decodedToken.userid; // Assuming `userid` is a key in your token
+
+      setLoading(true);
+      const response = await axios.post(
+        'http://localhost:3000/admin/getvobyaid', // Provided endpoint
+        { userid: userId }, // Send only the userid
+        {
+          headers: {
+            'apiauthkey': apiKey, // Sending API key in headers
+            'Content-Type': 'application/json'
+          },
+        }
+      );
+
+      if (response.data && response.data.data) {
+        const { data } = response.data;
+        if (data.length > 0) {
+          const [driver] = data;
+          if (tabValue === 0) {
+            setDriverData([driver]); // Only one driver in the example
+          } else if (tabValue === 1) {
+            setVehicleData(driver.vehicles); // Use the vehicles data directly
+          }
+        }
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching data:", error.response ? error.response.data : error.message);
+      setLoading(false);
+    }
   };
 
-  const handleMenuClick = (event) => {
-    setAnchorEl(event.currentTarget);
+  useEffect(() => {
+    fetchData(); // Fetch data whenever the tab changes
+  }, [tabValue]);
+
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue); // Toggle between Drivers and Vehicles tab
+  };
+
+  const handleAddClick = (event) => {
+    setAnchorEl(anchorEl ? null : event.currentTarget); // Toggle the Add dropdown
+  };
+
+  const handleMonthClick = () => {
+    setMonthDropdown(!monthDropdown); // Toggle the Month dropdown
   };
 
   const handleMenuClose = () => {
-    setAnchorEl(null);
+    setAnchorEl(null); // Close the Add dropdown
+  };
+
+  const handleAddOptionClick = (option) => {
+    console.log(`${option} clicked`);
+    handleMenuClose(); // Close the dropdown after selection
   };
 
   return (
     <div className="flex">
       <Sidebar />
-      <div className="flex-1 p-6 bg-gray-100 min-h-screen">
-        <h1 className="text-2xl font-bold mb-4">Drivers & Vehicles / Manage Drivers</h1>
-        <div className="mb-4 border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
+      <div className="flex-1 p-8 bg-gray-50 min-h-screen">
+        <h1 className="text-3xl font-semibold mb-6">Drivers & Vehicles / Manage {tabValue === 0 ? "Drivers" : "Vehicles"}</h1>
+
+        <div className="mb-6 border-b border-gray-300">
+          <nav className="flex space-x-8">
             <button
               onClick={(e) => handleTabChange(e, 0)}
-              className={`py-4 px-1 text-sm font-medium ${
+              className={`py-3 px-5 text-sm font-medium rounded-lg border-b-2 ${
                 tabValue === 0
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              } flex items-center`}
+                  ? 'border-blue-600 text-blue-600 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:border-blue-500 hover:text-blue-600'
+              } flex items-center transition duration-150 ease-in-out`}
             >
               <Settings className="mr-2" />
               Drivers
             </button>
             <button
               onClick={(e) => handleTabChange(e, 1)}
-              className={`py-4 px-1 text-sm font-medium ${
+              className={`py-3 px-5 text-sm font-medium rounded-lg border-b-2 ${
                 tabValue === 1
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              } flex items-center`}
+                  ? 'border-blue-600 text-blue-600 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:border-blue-500 hover:text-blue-600'
+              } flex items-center transition duration-150 ease-in-out`}
             >
               <Settings className="mr-2" />
               Vehicles
@@ -52,65 +115,158 @@ const DriversVehicles = () => {
           </nav>
         </div>
 
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-semibold">Driver List (0)</h2>
-          <div className="flex items-center space-x-2">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-lg font-semibold text-gray-700">{tabValue === 0 ? `Driver List (${driverData.length})` : `Vehicle List (${vehicleData.length})`}</h2>
+          <div className="flex items-center space-x-3">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Search"
-                className="w-64 py-2 px-3 rounded border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-64 py-2 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-400 focus:outline-none transition duration-150 ease-in-out"
               />
-              <Search className="absolute top-1/2 right-3 transform -translate-y-1/2 text-gray-500" />
+              <Search className="absolute top-1/2 right-4 transform -translate-y-1/2 text-gray-500" />
             </div>
 
-            <button className="bg-gray-200 p-2 rounded hover:bg-gray-300">
+            <button className="bg-gray-200 p-2 rounded-full hover:bg-gray-300 transition duration-150 ease-in-out" onClick={fetchData}>
               <Refresh />
             </button>
 
-            <button
-              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 px-4 py-2 rounded flex items-center"
-              onClick={handleMenuClick}
-            >
-              <Settings className="mr-1" />
-              Table Fields
+            <button className="p-2 rounded-full hover:bg-gray-200 transition duration-150 ease-in-out">
+              <Settings />
             </button>
 
-            <button className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 px-4 py-2 rounded">
-              This Month
-            </button>
+            <div className="relative">
+              <button
+                className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 px-4 py-2 rounded-lg flex items-center transition duration-150 ease-in-out"
+                onClick={handleMonthClick}
+              >
+                This Month
+                <ArrowDropDown className="ml-1" />
+              </button>
 
-            <button
-              className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
-              onClick={handleMenuClick}
-            >
-              <Add />
-            </button>
+              {monthDropdown && (
+                <div className="absolute mt-2 bg-white shadow-lg rounded-lg w-40 border border-gray-200">
+                  <ul className="py-2">
+                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month) => (
+                      <li key={month} className="px-4 py-2 hover:bg-gray-100 cursor-pointer transition duration-150 ease-in-out">
+                        {month}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
 
-            {anchorEl && (
-              <div className="absolute bg-white shadow rounded mt-2 p-2">
-                <button onClick={handleMenuClose} className="block w-full text-left px-4 py-2 text-sm">
-                  Add Hub
-                </button>
-                <button onClick={handleMenuClose} className="block w-full text-left px-4 py-2 text-sm">
-                  Add Charger
-                </button>
-                <button onClick={handleMenuClose} className="block w-full text-left px-4 py-2 text-sm">
-                  Add User
-                </button>
-              </div>
-            )}
+            <div className="relative">
+              <button
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center transition duration-150 ease-in-out"
+                onClick={handleAddClick}
+              >
+                <Add className="mr-1" />
+                Add
+              </button>
+
+              {anchorEl && (
+                <div className="absolute mt-2 bg-white shadow-lg rounded-lg p-2 w-48 border border-gray-200">
+                  <button
+                    onClick={() => handleAddOptionClick('Add Hub')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
+                  >
+                    Add Hub
+                  </button>
+                  <button
+                    onClick={() => handleAddOptionClick('Add Charger')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
+                  >
+                    Add Charger
+                  </button>
+                  <button
+                    onClick={() => handleAddOptionClick('Add User')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
+                  >
+                    Add User
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col items-center justify-center h-64 border border-gray-200 rounded-lg">
-          <img
-            src="https://img.icons8.com/ios/50/000000/no-data.png"
-            alt="No Data"
-            className="w-12 mb-4"
-          />
-          <p className="text-gray-500">No Data Found!</p>
-        </div>
+        {loading ? (
+          <div className="flex justify-center items-center h-64">
+            <p className="text-gray-500">Loading...</p>
+          </div>
+        ) : tabValue === 0 ? (
+          driverData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg shadow-md">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="py-3 px-4 border-b text-left text-gray-600"></th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">First Name</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Last Name</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Email</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Phone Number</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">License</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Gov Docs</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Nationality</th>
+                    <th className="py-3 px-4 border-b text-left text-gray-600">Address</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {driverData.map((driver, index) => (
+                    <tr key={driver.id} className="hover:bg-gray-50 transition duration-150 ease-in-out">
+                      <td className="py-3 px-4 border-b">{index + 1}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleowenerfirstname}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleowenerlastename}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleoweneremail}</td>
+                      <td className="py-3 px-4 border-b">{driver.phonenumber}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleowenerlicense}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleowenergovdocs}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleowenernationality}</td>
+                      <td className="py-3 px-4 border-b">{driver.vehicleoweneraddress}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500">No drivers found.</p>
+          )
+        ) : vehicleData.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border border-gray-200 rounded-lg shadow-md">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="py-3 px-4 border-b text-left text-gray-600"></th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Vehicle ID</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Name</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Model</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">License Plate</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Category</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Type</th>
+                  <th className="py-3 px-4 border-b text-left text-gray-600">Assigned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicleData.map((vehicle, index) => (
+                  <tr key={vehicle.id} className="hover:bg-gray-50 transition duration-150 ease-in-out">
+                    <td className="py-3 px-4 border-b">{index + 1}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.id}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.vehiclename}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.vehiclemodel}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.vehiclelicense}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.vehiclecategory}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.vehicletype}</td>
+                    <td className="py-3 px-4 border-b">{vehicle.isvehicleassigned ? "Assigned" : "Not Assigned"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500">No vehicles found.</p>
+        )}
       </div>
     </div>
   );
