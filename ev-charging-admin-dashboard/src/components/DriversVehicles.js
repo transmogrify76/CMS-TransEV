@@ -5,35 +5,35 @@ import axios from 'axios';
 import {jwtDecode} from 'jwt-decode';
 
 const DriversVehicles = () => {
-  const [tabValue, setTabValue] = useState(0); // 0 for Drivers, 1 for Vehicles
-  const [anchorEl, setAnchorEl] = useState(null); // for Add dropdown
-  const [monthDropdown, setMonthDropdown] = useState(false); // for Month dropdown
-  const [driverData, setDriverData] = useState([]); // to hold drivers data
-  const [vehicleData, setVehicleData] = useState([]); // to hold vehicles data
+  const [tabValue, setTabValue] = useState(0); 
+  const [anchorEl, setAnchorEl] = useState(null); 
+  const [monthDropdown, setMonthDropdown] = useState(false); 
+  const [driverData, setDriverData] = useState([]); 
+  const [vehicleData, setVehicleData] = useState([]); 
   const [loading, setLoading] = useState(false);
 
-  // Define fetchData function
+  
   const fetchData = async () => {
-    const apiKey = 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru'; // Provided API key
-    const token = localStorage.getItem('token'); // Retrieve token from local storage
+    const apiKey = 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru'; 
+    const token = localStorage.getItem('token'); 
 
     if (!token) {
       console.error("Error: Token is null or undefined.");
-      return; // Optionally, you could set an error state here and show a message to the user
+      return; 
     }
 
     try {
-      // Decode token to extract userId
+      
       const decodedToken = jwtDecode(token);
-      const userId = decodedToken.userid; // Assuming `userid` is a key in your token
+      const userId = decodedToken.userid; 
 
       setLoading(true);
       const response = await axios.post(
-        'http://localhost:3000/admin/getvobyaid', // Provided endpoint
-        { userid: userId }, // Send only the userid
+        'http://localhost:3000/admin/getvobyaid', 
+        { userid: userId }, 
         {
           headers: {
-            'apiauthkey': apiKey, // Sending API key in headers
+            'apiauthkey': apiKey, 
             'Content-Type': 'application/json'
           },
         }
@@ -44,9 +44,9 @@ const DriversVehicles = () => {
         if (data.length > 0) {
           const [driver] = data;
           if (tabValue === 0) {
-            setDriverData([driver]); // Only one driver in the example
+            setDriverData([driver]); 
           } else if (tabValue === 1) {
-            setVehicleData(driver.vehicles); // Use the vehicles data directly
+            setVehicleData(driver.vehicles); 
           }
         }
       }
@@ -58,28 +58,28 @@ const DriversVehicles = () => {
   };
 
   useEffect(() => {
-    fetchData(); // Fetch data whenever the tab changes
+    fetchData(); 
   }, [tabValue]);
 
   const handleTabChange = (event, newValue) => {
-    setTabValue(newValue); // Toggle between Drivers and Vehicles tab
+    setTabValue(newValue); 
   };
 
   const handleAddClick = (event) => {
-    setAnchorEl(anchorEl ? null : event.currentTarget); // Toggle the Add dropdown
+    setAnchorEl(anchorEl ? null : event.currentTarget); 
   };
 
   const handleMonthClick = () => {
-    setMonthDropdown(!monthDropdown); // Toggle the Month dropdown
+    setMonthDropdown(!monthDropdown); 
   };
 
   const handleMenuClose = () => {
-    setAnchorEl(null); // Close the Add dropdown
+    setAnchorEl(null); 
   };
 
   const handleAddOptionClick = (option) => {
     console.log(`${option} clicked`);
-    handleMenuClose(); // Close the dropdown after selection
+    handleMenuClose(); 
   };
 
   return (
@@ -175,7 +175,7 @@ const DriversVehicles = () => {
                     Add Hub
                   </button>
                   <button
-                    onClick={() => handleAddOptionClick('Add Charger')}
+                    onClick={() => handleAddOptionClick('')}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
                   >
                     Add Charger

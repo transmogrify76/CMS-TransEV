@@ -1,16 +1,7 @@
 // src/components/Sidebar.js
 import React, { useState,  } from 'react';
 import { NavLink } from 'react-router-dom';
-import {
-  FaArrowRight,
-  FaArrowLeft,
-  FaTachometerAlt,
-  FaBatteryFull,
-  FaWallet,
-  FaCar,
-  FaBell,
-  FaHeadset,
-} from 'react-icons/fa';
+import {FaArrowRight,FaArrowLeft, FaTachometerAlt,FaBatteryFull,FaWallet,FaCar,FaBell,FaHeadset,} from 'react-icons/fa';
 import { ThemeContext } from '../ThemeContext'; 
 
 const Sidebar = () => {

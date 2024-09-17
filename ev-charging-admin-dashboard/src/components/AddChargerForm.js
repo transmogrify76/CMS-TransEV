@@ -19,7 +19,7 @@ const AddChargerForm = () => {
     full_address: '',
     charger_use_type: '',
     twenty_four_seven_open_status: '',
-    charger_image: '', // Handle image upload separately
+    charger_image: '', 
     chargerbuyer: '',
     chargeridentity: '',
   });

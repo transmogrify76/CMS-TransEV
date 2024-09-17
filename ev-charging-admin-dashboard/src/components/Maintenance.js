@@ -7,7 +7,6 @@ const MaintenanceSupportPage = () => {
     <div className="flex min-h-screen bg-gray-100 text-gray-900">
       <Sidebar />
       <div className="flex-1 p-6 overflow-y-auto bg-gradient-to-br from-white to-gray-100">
-        {/* Centered Content Section */}
         <div className="flex flex-col items-center justify-center h-full text-center space-y-8">
           <Build className="text-yellow-500" style={{ fontSize: 80 }} />
           <div className="space-y-4 max-w-2xl mx-auto">
