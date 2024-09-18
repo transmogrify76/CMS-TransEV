@@ -11,7 +11,7 @@ import AddChargerForm from './components/AddChargerForm';
 import DriversVehicles from './components/DriversVehicles';
 import AlertsPage from './components/AlertsPage';
 import MaintenanceSupportPage from './components/Maintenance';
-
+import AddHubForm from './components/AddHubForm';
 
 function App() {
   return (
@@ -28,6 +28,7 @@ function App() {
           <Route path="/vd-management" element={<DriversVehicles />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/maintenance" element={<MaintenanceSupportPage />} />
+          <Route path="/add-hub" element={<AddHubForm />} />
         </Routes>
       </Router>
     </ThemeProvider>

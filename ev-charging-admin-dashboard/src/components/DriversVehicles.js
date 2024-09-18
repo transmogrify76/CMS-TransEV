@@ -3,6 +3,7 @@ import Sidebar from './Sidebar';
 import { Settings, Refresh, Add, Search, ArrowDropDown } from '@mui/icons-material';
 import axios from 'axios';
 import {jwtDecode} from 'jwt-decode';
+import { useNavigate } from "react-router-dom";
 
 const DriversVehicles = () => {
   const [tabValue, setTabValue] = useState(0); 
@@ -11,6 +12,7 @@ const DriversVehicles = () => {
   const [driverData, setDriverData] = useState([]); 
   const [vehicleData, setVehicleData] = useState([]); 
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   
   const fetchData = async () => {
@@ -169,13 +171,13 @@ const DriversVehicles = () => {
               {anchorEl && (
                 <div className="absolute mt-2 bg-white shadow-lg rounded-lg p-2 w-48 border border-gray-200">
                   <button
-                    onClick={() => handleAddOptionClick('Add Hub')}
+                    onClick={() => navigate("/add-hub")}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
                   >
                     Add Hub
                   </button>
                   <button
-                    onClick={() => handleAddOptionClick('')}
+                   onClick={() => navigate("/add-charger")}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition duration-150 ease-in-out"
                   >
                     Add Charger
