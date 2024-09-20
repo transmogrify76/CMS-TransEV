@@ -3,7 +3,7 @@ import { FilterList, Search } from '@mui/icons-material';
 import Sidebar from './Sidebar';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import {jwtDecode} from 'jwt-decode'; // Adjusted import for jwtDecode
+import { jwtDecode } from 'jwt-decode';
 
 const ChargerList = () => {
   const [chargers, setChargers] = useState([]);
@@ -17,6 +17,44 @@ const ChargerList = () => {
       return decodedToken.userid;
     }
     return null;
+  };
+
+  const fetchChargerStatus = async (uid) => {
+    try {
+      const response = await axios.post(
+        'http://srv586896.hstgr.cloud:80/api/status',
+        { uid },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': '3qrCLEcHa8wwaZC34xhAd3RotuYdHwiB',
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch charger status', error);
+      return null;
+    }
+  };
+
+  const triggerMessage = async (chargerId) => {
+    try {
+      const response = await axios.post(
+        'http://srv586896.hstgr.cloud:80/api/trigger_message',
+        { uid: chargerId, requested_message: 'BootNotification' },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': '3qrCLEcHa8wwaZC34xhAd3RotuYdHwiB',
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Failed to trigger message', error);
+      return null;
+    }
   };
 
   const fetchChargers = async () => {
@@ -43,7 +81,23 @@ const ChargerList = () => {
       );
 
       const chargerDetails = response.data.user_chargerunit_details;
-      setChargers(Array.isArray(chargerDetails) ? chargerDetails : []);
+
+      const chargerDataWithStatus = await Promise.all(
+        (Array.isArray(chargerDetails) ? chargerDetails : []).map(async (charger) => {
+          const statusData = await fetchChargerStatus(charger.uid);
+          const messageData = await triggerMessage(charger.uid); // Trigger message API
+
+          return {
+            ...charger,
+            status: statusData?.status || 'Unknown',
+            online: statusData?.online || 'Offline',
+            make: messageData?.latest_message?.charge_point_model || 'N/A', // Map vendor
+            firmwareVersion: messageData?.latest_message?.firmware_version || 'N/A', // Map firmware version
+          };
+        })
+      );
+
+      setChargers(chargerDataWithStatus);
     } catch (error) {
       setError('Failed to fetch chargers');
       console.error(error);
@@ -59,7 +113,7 @@ const ChargerList = () => {
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-GB'); // Adjust the format as needed
+    return date.toLocaleDateString('en-GB');
   };
 
   return (
@@ -131,9 +185,18 @@ const ChargerList = () => {
                   {chargers.map((charger) => (
                     <tr key={charger.uid} className="hover:bg-gray-100">
                       {[
-                        charger.uid || '', 'N/A', charger.Chargerhost || '', charger.ChargerName || '',
-                        charger.Connector_type || '', charger.firstname || '', 'N/A', formatDate(charger.createdAt) || '',
-                        charger.Connector_type || '', 'N/A' || '', 'N/A', 'N/A', 'N/A'
+                        charger.uid || '',
+                        charger.status || 'N/A',
+                        charger.Chargerhost || '',
+                        charger.ChargerName || '',
+                        charger.Connector_type || '',
+                        charger.firstname || '',
+                        'OCPP',
+                        formatDate(charger.createdAt) || '',
+                        charger.online || 'N/A',
+                        charger.make || 'N/A', // Display make
+                        charger.firmwareVersion || 'N/A', // Display firmware version
+                        'N/A', 'N/A' // Other actions can remain as is
                       ].map((value, index) => (
                         <td key={index} className="px-4 py-2 text-sm font-bold whitespace-nowrap">
                           {value}

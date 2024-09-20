@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Typography, Button, TextField } from '@mui/material';
 import Sidebar from './Sidebar';
 import axios from 'axios';
-import { jwtDecode } from 'jwt-decode'; // Adjust the import if necessary
+import {jwtDecode} from 'jwt-decode'; // Ensure correct import
 
 const RevenueManagement = () => {
   const [totalRevenue, setTotalRevenue] = useState(null);
@@ -47,7 +47,7 @@ const RevenueManagement = () => {
       );
       setTotalRevenue(revenueResponse.data.totalrevenues);
 
-      // Fetch transactions
+      // Fetch transactions from the first API
       const transactionsResponse = await axios.post(
         'http://localhost:3000/admin/totalrevenue',
         { userId },
@@ -58,7 +58,43 @@ const RevenueManagement = () => {
           },
         }
       );
-      setTransactions(transactionsResponse.data.transactions || []);
+      const oldTransactions = transactionsResponse.data.transactions || [];
+
+      // Fetch transactions from the second API (new transactions)
+      const newTransactionsResponse = await axios.post(
+        'http://localhost:3000/admin/alltsdetails',
+        { userid: userId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            apiauthkey: 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru',
+          },
+        }
+      );
+
+      // Transform new API data
+      const newTransactions = newTransactionsResponse.data.data.map((transaction) => ({
+        id: transaction.paymentid,
+        status: 'Completed',
+        amount: transaction.price,
+        charger: transaction.chargerDetails?.chargeridentity || 'Unknown',
+        hub: transaction.hubdetails?.hubname || 'N/A',
+        tariff: transaction.hubdetails?.hubtariff || 'Standard',
+        usage: '10 kWh', // Placeholder, adjust based on real data
+        owner: transaction.userDetails?.firstname + ' ' + transaction.userDetails?.lastname || 'Unknown',
+        hostDetails: transaction.hubdetails?.full_address || 'Unknown',
+        driverDetails:
+          transaction.driverdetails?.vehicleowenerfirstname + ' ' + transaction.driverdetails?.vehicleowenerlastename || 'Unknown',
+        timestamp: transaction.createdAt,
+      }));
+
+      // Combine old and new transactions, avoiding duplicates
+      const combinedTransactions = [
+        ...oldTransactions,
+        ...newTransactions.filter((newTransaction) => !oldTransactions.some((old) => old.id === newTransaction.id)),
+      ];
+
+      setTransactions(combinedTransactions);
     } catch (error) {
       setError('Failed to fetch data');
       console.error(error);
@@ -121,7 +157,7 @@ const RevenueManagement = () => {
         ) : error ? (
           <p className="text-center text-red-600">{error}</p>
         ) : (
-          <div className="bg-white shadow-md rounded-lg overflow-auto">
+          <div className="bg-white shadow-md rounded-lg overflow-x-auto" style={{ maxHeight: '400px', overflowY: 'scroll' }}>
             <div className="flex justify-between mb-2 px-4">
               <Typography variant="h6" className="text-lg font-medium text-gray-700">
                 Transactions ({transactions.length})
@@ -161,19 +197,6 @@ const RevenueManagement = () => {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {!loading && transactions.length === 0 && (
-          <div className="flex justify-center items-center bg-white mt-6 py-8 rounded-lg shadow-lg">
-            <div className="text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2m-6 0h6" />
-              </svg>
-              <Typography variant="h6" className="text-gray-600 mt-2">
-                No Data Found
-              </Typography>
-            </div>
           </div>
         )}
       </div>

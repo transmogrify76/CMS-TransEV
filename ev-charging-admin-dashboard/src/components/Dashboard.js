@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
-import { jwtDecode } from 'jwt-decode'; // Ensure correct import
+import { jwtDecode } from 'jwt-decode';
 import { useNavigate } from 'react-router-dom';
 import {
   FaDollarSign,
@@ -8,7 +8,7 @@ import {
   FaBatteryHalf,
   FaClock,
   FaUser,
-} from 'react-icons/fa'; // Icons for representation
+} from 'react-icons/fa';
 
 const months = [
   'January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -27,6 +27,20 @@ const states = [
 const Dashboard = () => {
   const [userName, setUserName] = useState('User');
   const navigate = useNavigate();
+
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedState, setSelectedState] = useState('');
+  const [revenue, setRevenue] = useState('$0.00');
+  const [numOfSession, setNumOfSession] = useState('0');
+  const [usage, setUsage] = useState('0%');
+  const [uptime, setUptime] = useState('0%');
+  const [chargerCount, setChargerCount] = useState('0');
+  const [blockCount, setBlockCount] = useState('0');
+  const [allChargersCount, setAllChargersCount] = useState('0');
+  const [chargingCount, setChargingCount] = useState('0');
+  const [availableCount, setAvailableCount] = useState('0');
+  const [offlineCount, setOfflineCount] = useState('0');
+  const [errorCount, setErrorCount] = useState('0');
 
   useEffect(() => {
     const getUserDataFromToken = () => {
@@ -47,25 +61,73 @@ const Dashboard = () => {
     getUserDataFromToken();
   }, [navigate]);
 
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedState, setSelectedState] = useState('');
-  const [revenue, setRevenue] = useState('$0.00');
-  const [numOfSession, setNumOfSession] = useState('0');
-  const [usage, setUsage] = useState('0%');
-  const [uptime, setUptime] = useState('0%');
-  const [chargerCount, setChargerCount] = useState('0');
-  const [blockCount, setBlockCount] = useState('0');
-  const [allChargersCount, setAllChargersCount] = useState('0');
-  const [chargingCount, setChargingCount] = useState('0');
-  const [availableCount, setAvailableCount] = useState('0');
-  const [offlineCount, setOfflineCount] = useState('0');
-  const [errorCount, setErrorCount] = useState('0');
+  useEffect(() => {
+    const fetchChargerAnalytics = async () => {
+      const apiUrl = 'http://srv586896.hstgr.cloud:80/api/charger_analytics';
+      const apiKey = '3qrCLEcHa8wwaZC34xhAd3RotuYdHwiB';
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            charger_id: 'cumulative',
+            user_id: 'zzzz',
+          }),
+        });
+
+        const data = await response.json();
+        setUptime(data.total_uptime);
+        setNumOfSession(data.total_transactions.toString());
+        setUsage('100%'); // Adjust this according to your logic
+        setChargerCount(data.charger_count);
+        setBlockCount(data.block_count);
+        setAllChargersCount(data.all_chargers_count);
+        setChargingCount(data.charging_count);
+        setAvailableCount(data.available_count);
+        setOfflineCount(data.offline_count);
+        setErrorCount(data.error_count);
+        
+      } catch (error) {
+        console.error('Error fetching charger analytics:', error);
+      }
+    };
+
+    const fetchTotalRevenue = async () => {
+      const apiUrl = 'http://localhost:3000/admin/totalrevenue';
+      const apiAuthKey = 'aBcD1eFgH2iJkLmNoPqRsTuVwXyZ012345678jasldjalsdjurewouroewiru';
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'apiAuthKey': apiAuthKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userid: 'yyyy',
+          }),
+        });
+
+        const data = await response.json();
+        setRevenue(`$${data.totalrevenues.toFixed(2)}`);
+      } catch (error) {
+        console.error('Error fetching total revenue:', error);
+      }
+    };
+
+    fetchChargerAnalytics();
+    fetchTotalRevenue();
+  }, []);
 
   return (
     <div className="flex h-screen">
-      <Sidebar className="h-full" /> {/* Set sidebar to full height */}
+      <Sidebar className="h-full" />
       <div className="flex-1 h-full overflow-y-auto p-8 bg-white text-gray-800">
-      <nav className="bg-white shadow-md p-5 rounded-lg mb-8 border border-gray-200">
+        <nav className="bg-white shadow-md p-5 rounded-lg mb-8 border border-gray-200">
           <div className="flex justify-between items-center">
             <h1 className="text-gray-900 font-semibold text-2xl">
               Welcome, {userName}!
@@ -86,8 +148,7 @@ const Dashboard = () => {
                 </button>
               </form>
               <a href="#" className="flex items-center text-gray-800 ml-6">
-                <FaUser className="text-xl" /> {/* Account icon */}
-                <span className="ml-2"></span>
+                <FaUser className="text-xl" />
               </a>
             </div>
           </div>
@@ -153,7 +214,6 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-
         <div className="bg-gray-50 p-6 rounded-lg shadow-md border border-gray-200">
           <div className="flex justify-between items-center mb-4">
             <select className="form-select bg-white border border-gray-300 text-gray-800 py-3 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -195,7 +255,9 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+      
     </div>
+    
   );
 };
 
