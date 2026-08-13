@@ -1,4 +1,4 @@
-// src/components/Revenue/ChargerTariff.jsx
+// src/components/Revenue/HubTariff.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../Authentication/AuthContext';
@@ -50,6 +50,9 @@ import {
   MoreVertical,
   Filter,
   RefreshCw,
+  MapPin,
+  Home,
+  Briefcase,
 } from 'lucide-react';
 import Sidebar from '../Sidebar/Sidebar';
 
@@ -57,12 +60,12 @@ import Sidebar from '../Sidebar/Sidebar';
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://dev-evcmsnew.transev.site';
 
 const API_CONFIG = {
-  CHARGERS_API: `${API_BASE_URL}/api/v1/cpo/chargers`,
-  CHARGER_TARIFFS_API: (chargerId) => `${API_BASE_URL}/api/v1/cpo/chargers/${chargerId}/tariffs`,
+  HUBS_API: `${API_BASE_URL}/api/v1/cpo/hubs`,
+  HUB_TARIFFS_API: (hubId) => `${API_BASE_URL}/api/v1/cpo/hubs/${hubId}/tariffs`,
   USER_INFO_API: `${API_BASE_URL}/api/v1/auth/me`
 };
 
-const ChargerTariff = () => {
+const HubTariff = () => {
   const navigate = useNavigate();
   const { authenticatedRequest, logout, isRefreshing, isAuthenticated, user } = useAuth();
   
@@ -73,15 +76,15 @@ const ChargerTariff = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [chargers, setChargers] = useState([]);
-  const [selectedCharger, setSelectedCharger] = useState(null);
+  const [hubs, setHubs] = useState([]);
+  const [selectedHub, setSelectedHub] = useState(null);
   const [tariffs, setTariffs] = useState([]);
   const [loadingTariffs, setLoadingTariffs] = useState(false);
   const [showTariffDetail, setShowTariffDetail] = useState(false);
   const [selectedTariff, setSelectedTariff] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Tabs configuration
+  // Tabs configuration - Hub Tariffs replaces Aggregation Fee
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart, path: '/revenue/overview' },
     { id: 'driver_tariffs', label: 'Customer Tariffs', icon: Users, path: '/revenue/customer-tariffs' },
@@ -91,14 +94,14 @@ const ChargerTariff = () => {
     { id: 'settings', label: 'Settings', icon: Settings, path: '/revenue/settings' }
   ];
 
-  // Fetch user info and chargers
+  // Fetch user info and hubs
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/signin');
       return;
     }
     fetchUserInfo();
-    fetchChargers();
+    fetchHubs();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, navigate]);
 
@@ -116,39 +119,39 @@ const ChargerTariff = () => {
     }
   }, [authenticatedRequest]);
 
-  // Fetch chargers using GET /api/v1/cpo/chargers
-  const fetchChargers = useCallback(async () => {
+  // Fetch hubs using GET /api/v1/cpo/hubs
+  const fetchHubs = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await authenticatedRequest(API_CONFIG.CHARGERS_API, {
+      const response = await authenticatedRequest(API_CONFIG.HUBS_API, {
         method: 'GET'
       });
 
       if (response.ok) {
         const data = await response.json();
-        const chargersData = data.chargers || data.data || data || [];
-        setChargers(chargersData);
-        if (chargersData.length > 0) {
-          setSelectedCharger(chargersData[0]);
-          fetchTariffs(chargersData[0].id);
+        const hubsData = data.hubs || data.data || data || [];
+        setHubs(hubsData);
+        if (hubsData.length > 0) {
+          setSelectedHub(hubsData[0]);
+          fetchTariffs(hubsData[0].id);
         }
       } else {
-        setError('Failed to fetch chargers');
+        setError('Failed to fetch hubs');
       }
     } catch (error) {
-      console.error('Error fetching chargers:', error);
-      setError('An error occurred while fetching chargers');
+      console.error('Error fetching hubs:', error);
+      setError('An error occurred while fetching hubs');
     } finally {
       setLoading(false);
     }
   }, [authenticatedRequest]);
 
-  // Fetch tariffs for a specific charger
-  const fetchTariffs = useCallback(async (chargerId) => {
+  // Fetch tariffs for a specific hub
+  const fetchTariffs = useCallback(async (hubId) => {
     setLoadingTariffs(true);
     try {
-      const response = await authenticatedRequest(API_CONFIG.CHARGER_TARIFFS_API(chargerId), {
+      const response = await authenticatedRequest(API_CONFIG.HUB_TARIFFS_API(hubId), {
         method: 'GET'
       });
 
@@ -160,16 +163,16 @@ const ChargerTariff = () => {
         setTariffs([]);
       }
     } catch (error) {
-      console.error('Error fetching charger tariffs:', error);
+      console.error('Error fetching hub tariffs:', error);
       setTariffs([]);
     } finally {
       setLoadingTariffs(false);
     }
   }, [authenticatedRequest]);
 
-  const handleChargerSelect = (charger) => {
-    setSelectedCharger(charger);
-    fetchTariffs(charger.id);
+  const handleHubSelect = (hub) => {
+    setSelectedHub(hub);
+    fetchTariffs(hub.id);
     setShowTariffDetail(false);
     setSelectedTariff(null);
   };
@@ -179,14 +182,14 @@ const ChargerTariff = () => {
     setShowTariffDetail(true);
   };
 
-  // Handle Add Tariff - Navigate to Add Charger Tariff page
+  // Handle Add Tariff - Navigate to Add Hub Tariff page
   const handleAddTariff = () => {
-    if (selectedCharger) {
-      navigate('/revenue/add-charger-tariff', { 
-        state: { chargerId: selectedCharger.id, chargerName: selectedCharger.charger_name || selectedCharger.charger_id }
+    if (selectedHub) {
+      navigate('/revenue/add-hub-tariff', { 
+        state: { hubId: selectedHub.id, hubName: selectedHub.name }
       });
     } else {
-      navigate('/revenue/add-charger-tariff');
+      navigate('/revenue/add-hub-tariff');
     }
   };
 
@@ -202,7 +205,7 @@ const ChargerTariff = () => {
   const handleThemeToggle = () => setIsDarkMode(!isDarkMode);
 
   const handleTabClick = (tabId, path) => {
-    if (tabId === 'charger_tariffs') return;
+    if (tabId === 'hub_tariffs') return;
     navigate(path);
   };
 
@@ -233,21 +236,10 @@ const ChargerTariff = () => {
       : <XCircle className="w-3 h-3" />;
   };
 
-  const getChargerStatusColor = (status) => {
-    const statusMap = {
-      'active': 'bg-green-100 text-green-700 border-green-200',
-      'inactive': 'bg-gray-100 text-gray-700 border-gray-200',
-      'maintenance': 'bg-yellow-100 text-yellow-700 border-yellow-200',
-      'offline': 'bg-red-100 text-red-700 border-red-200',
-    };
-    return statusMap[status?.toLowerCase()] || 'bg-gray-100 text-gray-700 border-gray-200';
-  };
-
-  const getChargerStatusIcon = (status) => {
-    if (status?.toLowerCase() === 'active') return <Power className="w-3 h-3" />;
-    if (status?.toLowerCase() === 'inactive') return <PowerOff className="w-3 h-3" />;
-    if (status?.toLowerCase() === 'maintenance') return <Activity className="w-3 h-3" />;
-    return <PowerOff className="w-3 h-3" />;
+  const getHubStatusColor = (isActive) => {
+    return isActive 
+      ? 'bg-green-100 text-green-700 border-green-200'
+      : 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
   // Settings Dropdown Menu
@@ -309,15 +301,15 @@ const ChargerTariff = () => {
 
     return (
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex items-center justify-between">
+        <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-amber-50 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-blue-600" />
-            <h3 className="font-semibold text-gray-900">Charger Tariff Details</h3>
+            <Layers className="w-5 h-5 text-orange-600" />
+            <h3 className="font-semibold text-gray-900">Hub Tariff Details</h3>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onEdit(tariff)}
-              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+              className="p-1.5 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
               title="Edit Tariff"
             >
               <Edit size={16} />
@@ -335,7 +327,7 @@ const ChargerTariff = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-gray-500 uppercase tracking-wider">Tariff ID</p>
-              <p className="text-sm font-semibold text-gray-900">{tariff.id || 'N/A'}</p>
+              <p className="text-sm font-semibold text-gray-900">{tariff.id?.slice(0, 8) || 'N/A'}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase tracking-wider">Status</p>
@@ -387,6 +379,15 @@ const ChargerTariff = () => {
             </div>
           ) : null}
 
+          {tariff.charger_id && (
+            <div className="border-t border-gray-200 pt-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Specific Charger</p>
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                <p className="text-sm font-medium text-gray-900">Charger ID: {tariff.charger_id}</p>
+              </div>
+            </div>
+          )}
+
           {tariff.user_group_id && (
             <div className="border-t border-gray-200 pt-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Customer Group</p>
@@ -396,10 +397,19 @@ const ChargerTariff = () => {
             </div>
           )}
 
+          {tariff.gst_id && (
+            <div className="border-t border-gray-200 pt-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">GST Profile</p>
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                <p className="text-sm font-medium text-gray-900">GST ID: {tariff.gst_id}</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-2 border-t border-gray-200">
             <button
               onClick={() => onEdit(tariff)}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition text-sm flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition text-sm flex items-center justify-center gap-2"
             >
               <Edit size={16} />
               Edit Tariff
@@ -448,7 +458,7 @@ const ChargerTariff = () => {
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-gray-800">Revenue Management</h1>
                 <span className="text-gray-300 text-xl">/</span>
-                <span className="text-sm text-blue-600 font-medium mt-1">Charger Tariffs</span>
+                <span className="text-sm text-orange-600 font-medium mt-1">Hub Tariffs</span>
               </div>
             </div>
             
@@ -470,12 +480,12 @@ const ChargerTariff = () => {
           </div>
         </header>
 
-        {/* Tabs */}
+        {/* Tabs - Hub Tariffs active with green color */}
         <div className="border-b border-gray-200 bg-white px-6">
           <div className="flex flex-wrap items-center gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
-              const isActive = tab.id === 'charger_tariffs';
+              const isActive = tab.id === 'hub_tariffs';
               return (
                 <button
                   key={tab.id}
@@ -497,17 +507,17 @@ const ChargerTariff = () => {
         {/* Content */}
         <div className="p-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column - Chargers List */}
+            {/* Left Column - Hubs List */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden sticky top-24">
                 <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Zap className="w-5 h-5 text-blue-600" />
-                      <h3 className="font-semibold text-gray-900">Chargers</h3>
+                      <Layers className="w-5 h-5 text-orange-600" />
+                      <h3 className="font-semibold text-gray-900">Hubs</h3>
                     </div>
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                      {chargers.length}
+                    <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                      {hubs.length}
                     </span>
                   </div>
                 </div>
@@ -517,62 +527,61 @@ const ChargerTariff = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search by charger..."
+                      placeholder="Search by hub..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
                     />
                   </div>
 
                   {loading ? (
                     <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                      <Loader2 className="w-6 h-6 text-orange-600 animate-spin" />
                     </div>
-                  ) : chargers.length === 0 ? (
+                  ) : hubs.length === 0 ? (
                     <div className="text-center py-8">
-                      <Zap className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                      <p className="text-gray-500 text-sm">No chargers found</p>
+                      <Layers className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p className="text-gray-500 text-sm">No hubs found</p>
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                      {chargers
-                        .filter(c => 
-                          (c.charger_name || c.charger_id || '')
+                      {hubs
+                        .filter(h => 
+                          (h.name || '')
                             .toLowerCase()
                             .includes(searchQuery.toLowerCase())
                         )
-                        .map((charger) => (
+                        .map((hub) => (
                           <button
-                            key={charger.id}
-                            onClick={() => handleChargerSelect(charger)}
+                            key={hub.id}
+                            onClick={() => handleHubSelect(hub)}
                             className={`w-full text-left p-3 rounded-xl border transition ${
-                              selectedCharger?.id === charger.id
-                                ? 'border-blue-500 bg-blue-50 shadow-sm'
+                              selectedHub?.id === hub.id
+                                ? 'border-orange-500 bg-orange-50 shadow-sm'
                                 : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                             }`}
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                                  <Zap size={14} className="text-white" />
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                                  <Layers size={14} className="text-white" />
                                 </div>
                                 <div>
                                   <p className="text-sm font-medium text-gray-900">
-                                    {charger.charger_name || charger.charger_id || 'Unnamed Charger'}
+                                    {hub.name || 'Unnamed Hub'}
                                   </p>
                                   <p className="text-xs text-gray-500 truncate max-w-[120px]">
-                                    ID: {charger.charger_id}
+                                    {hub.address || 'No address'}
                                   </p>
                                 </div>
                               </div>
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getChargerStatusColor(charger.status)}`}>
-                                {getChargerStatusIcon(charger.status)}
-                                {charger.status || 'Unknown'}
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getHubStatusColor(hub.customer_visible)}`}>
+                                {hub.customer_visible ? 'Visible' : 'Hidden'}
                               </span>
                             </div>
                             <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
-                              <span>Power: {charger.max_power_kw || 0} kW</span>
-                              <span>Connectors: {charger.number_of_connectors || 0}</span>
+                              <span>📍 {hub.latitude}, {hub.longitude}</span>
+                              <span>{hub.open_24_hours ? '24/7' : 'Timed'}</span>
                             </div>
                           </button>
                         ))}
@@ -584,31 +593,31 @@ const ChargerTariff = () => {
 
             {/* Right Column - Tariffs List */}
             <div className="lg:col-span-2">
-              {selectedCharger ? (
+              {selectedHub ? (
                 <>
-                  {/* Charger Info Card */}
+                  {/* Hub Info Card */}
                   <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 mb-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                          <Zap className="w-6 h-6 text-white" />
+                        <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/25">
+                          <Layers className="w-6 h-6 text-white" />
                         </div>
                         <div>
                           <h3 className="text-lg font-bold text-gray-900">
-                            {selectedCharger.charger_name || selectedCharger.charger_id || 'Unnamed Charger'}
+                            {selectedHub.name || 'Unnamed Hub'}
                           </h3>
-                          <p className="text-sm text-gray-500">ID: {selectedCharger.charger_id}</p>
+                          <p className="text-sm text-gray-500">{selectedHub.address || 'No address'}</p>
                           <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                            <span>Status: {selectedCharger.status || 'Unknown'}</span>
-                            <span>Power: {selectedCharger.max_power_kw || 0} kW</span>
-                            <span>Connectors: {selectedCharger.number_of_connectors || 0}</span>
+                            <span>📍 {selectedHub.latitude}, {selectedHub.longitude}</span>
+                            <span>{selectedHub.open_24_hours ? '🕐 24/7' : '⏰ Timed'}</span>
+                            <span>{selectedHub.customer_visible ? '👁️ Visible' : '👁️ Hidden'}</span>
                           </div>
                         </div>
                       </div>
                       {/* Add Tariff Button */}
                       <button
                         onClick={handleAddTariff}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/25"
+                        className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition shadow-lg shadow-orange-500/25"
                       >
                         <Plus size={18} />
                         Add Tariff
@@ -619,16 +628,16 @@ const ChargerTariff = () => {
                   {/* Tariffs List */}
                   {loadingTariffs ? (
                     <div className="flex items-center justify-center py-12 bg-white rounded-2xl border border-gray-200">
-                      <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                      <Loader2 className="w-8 h-8 text-orange-600 animate-spin" />
                     </div>
                   ) : tariffs.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-                      <Zap className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                      <Layers className="w-16 h-16 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-500 font-medium">No Tariffs Found</p>
-                      <p className="text-sm text-gray-400 mt-1">Create your first tariff for this charger</p>
+                      <p className="text-sm text-gray-400 mt-1">Create your first tariff for this hub</p>
                       <button
                         onClick={handleAddTariff}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                        className="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition"
                       >
                         <Plus size={16} className="inline mr-1" />
                         Create Tariff
@@ -640,12 +649,12 @@ const ChargerTariff = () => {
                         <div
                           key={tariff.id}
                           onClick={() => handleTariffClick(tariff)}
-                          className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden hover:border-blue-300"
+                          className="bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden hover:border-orange-300"
                         >
                           <div className="p-5">
                             <div className="flex items-start justify-between">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
+                                <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/25 flex-shrink-0">
                                   <Tag className="w-5 h-5 text-white" />
                                 </div>
                                 <div>
@@ -661,6 +670,12 @@ const ChargerTariff = () => {
                                     {tariff.tariff_type && (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
                                         {tariff.tariff_type}
+                                      </span>
+                                    )}
+                                    {tariff.charger_id && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                        <Zap size={12} />
+                                        Specific Charger
                                       </span>
                                     )}
                                   </div>
@@ -681,6 +696,9 @@ const ChargerTariff = () => {
                                 {tariff.user_group_id && (
                                   <span>Group: {tariff.user_group_id?.slice(0, 8)}</span>
                                 )}
+                                {tariff.gst_id && (
+                                  <span>GST: {tariff.gst_id?.slice(0, 8)}</span>
+                                )}
                               </div>
                               <div className="flex items-center gap-1">
                                 <button
@@ -688,7 +706,7 @@ const ChargerTariff = () => {
                                     e.stopPropagation();
                                     handleTariffClick(tariff);
                                   }}
-                                  className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                  className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
                                   title="View Details"
                                 >
                                   <Eye size={16} />
@@ -714,9 +732,9 @@ const ChargerTariff = () => {
                 </>
               ) : (
                 <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-                  <Zap className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 font-medium">Select a Charger</p>
-                  <p className="text-sm text-gray-400 mt-1">Choose a charger from the left to view its tariffs</p>
+                  <Layers className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">Select a Hub</p>
+                  <p className="text-sm text-gray-400 mt-1">Choose a hub from the left to view its tariffs</p>
                 </div>
               )}
             </div>
@@ -727,4 +745,4 @@ const ChargerTariff = () => {
   );
 };
 
-export default ChargerTariff;
+export default HubTariff;
