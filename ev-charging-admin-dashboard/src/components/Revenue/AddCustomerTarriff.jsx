@@ -127,12 +127,15 @@ import {
   CloudGalaxy,
   CloudUniverse,
   CloudMultiverse,
+  Shield,
   AlertCircle,
-  Shield
+  CalendarRange
 } from 'lucide-react';
 import Sidebar from '../Sidebar/Sidebar';
 
+// ============================================================================
 // API Configuration
+// ============================================================================
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://dev-evcmsnew.transev.site';
 
 const API_CONFIG = {
@@ -140,8 +143,41 @@ const API_CONFIG = {
   USER_GROUP_TARIFFS_API: (groupId) => `${API_BASE_URL}/api/v1/cpo/user-groups/${groupId}/tariffs`,
   HUBS_API: `${API_BASE_URL}/api/v1/cpo/hubs`,
   CHARGERS_API: `${API_BASE_URL}/api/v1/cpo/chargers`,
-  GST_API: `${API_BASE_URL}/api/v1/cpo/gst`,
   USER_INFO_API: `${API_BASE_URL}/api/v1/auth/me`
+};
+
+// ============================================================================
+// SECTION 12 - Canonical Pricing Model
+// ============================================================================
+const PRICE_TYPE_MAP = {
+  'Energy': 'energy',
+  'Time': 'time',
+  'Sessions': 'sessions'
+};
+
+const UNITS_MAP = {
+  'kWh': 'kwh',
+  'minutes': 'minutes'
+};
+
+const PRICE_TYPE_DISPLAY = {
+  'energy': 'Energy',
+  'time': 'Time',
+  'sessions': 'Sessions'
+};
+
+const UNITS_DISPLAY = {
+  'kwh': 'kWh',
+  'minutes': 'Minutes'
+};
+
+// ============================================================================
+// SECTION 55 - Recommended Terminology Glossary
+// ============================================================================
+const TARIFF_ROLE_DISPLAY = {
+  'root': 'Root Fallback',
+  'baseline': 'Open-ended Baseline',
+  'temporary': 'Temporary Override'
 };
 
 const AddCustomerTariff = () => {
@@ -161,32 +197,30 @@ const AddCustomerTariff = () => {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   
-  // Hubs, Chargers and GST states
+  // Optional resources - only for display
   const [hubs, setHubs] = useState([]);
   const [chargers, setChargers] = useState([]);
-  const [gstList, setGstList] = useState([]);
   const [loadingHubs, setLoadingHubs] = useState(false);
   const [loadingChargers, setLoadingChargers] = useState(false);
-  const [loadingGST, setLoadingGST] = useState(false);
-  const [filteredChargers, setFilteredChargers] = useState([]);
   
-  // Form state - Matches backend CreateUserGroupTariff request
+  // ============================================================================
+  // SECTION 29 - Form State with Temporal Role
+  // ============================================================================
   const [formData, setFormData] = useState({
-    hub_id: '',
-    charger_id: '',
-    gst_id: '',
-    price_per_kwh: '',
+    price_per_unit: '',
     idle_fee_per_min: '0',
     currency: 'INR',
     is_active: true,
     start_date: '',
-    end_date: ''
+    end_date: '',
+    tariff_type: 'Standard',
+    price_type: 'Energy',
+    units: 'kWh',
+    temporal_role: 'root' // 'root' | 'baseline' | 'temporary'
   });
 
-  // Form validation errors
   const [formErrors, setFormErrors] = useState({});
 
-  // Fetch user info and groups
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/signin');
@@ -196,20 +230,24 @@ const AddCustomerTariff = () => {
     fetchUserGroups();
     fetchHubs();
     fetchChargers();
-    fetchGSTList();
     
     const state = location.state;
     if (state && state.groupId) {
-      // Wait for groups to load before setting selected group
-      const checkGroup = () => {
-        const group = userGroups.find(g => g.id === state.groupId);
-        if (group) {
-          setSelectedGroup(group);
-        } else {
-          setTimeout(checkGroup, 100);
-        }
-      };
-      checkGroup();
+      const group = userGroups.find(g => g.id === state.groupId);
+      if (group) {
+        setSelectedGroup(group);
+      } else {
+        // Wait for groups to load
+        const checkGroup = () => {
+          const found = userGroups.find(g => g.id === state.groupId);
+          if (found) {
+            setSelectedGroup(found);
+          } else {
+            setTimeout(checkGroup, 100);
+          }
+        };
+        checkGroup();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, navigate, location]);
@@ -240,6 +278,14 @@ const AddCustomerTariff = () => {
         const data = await response.json();
         const groups = data.user_groups || data.data || data || [];
         setUserGroups(groups);
+        
+        const state = location.state;
+        if (state && state.groupId) {
+          const group = groups.find(g => g.id === state.groupId);
+          if (group) {
+            setSelectedGroup(group);
+          }
+        }
       } else {
         setError('Failed to fetch customer groups');
       }
@@ -249,9 +295,8 @@ const AddCustomerTariff = () => {
     } finally {
       setLoading(false);
     }
-  }, [authenticatedRequest]);
+  }, [authenticatedRequest, location.state]);
 
-  // Fetch hubs using GET /api/v1/cpo/hubs
   const fetchHubs = useCallback(async () => {
     setLoadingHubs(true);
     try {
@@ -274,7 +319,6 @@ const AddCustomerTariff = () => {
     }
   }, [authenticatedRequest]);
 
-  // Fetch chargers using GET /api/v1/cpo/chargers
   const fetchChargers = useCallback(async () => {
     setLoadingChargers(true);
     try {
@@ -297,39 +341,6 @@ const AddCustomerTariff = () => {
     }
   }, [authenticatedRequest]);
 
-  // Fetch GST list using GET /api/v1/cpo/gst
-  const fetchGSTList = useCallback(async () => {
-    setLoadingGST(true);
-    try {
-      const response = await authenticatedRequest(API_CONFIG.GST_API, {
-        method: 'GET'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const gstData = data.gsts || data.data || data || [];
-        setGstList(gstData);
-      } else {
-        setGstList([]);
-      }
-    } catch (error) {
-      console.error('Error fetching GST list:', error);
-      setGstList([]);
-    } finally {
-      setLoadingGST(false);
-    }
-  }, [authenticatedRequest]);
-
-  // Filter chargers based on selected hub
-  useEffect(() => {
-    if (formData.hub_id) {
-      const filtered = chargers.filter(c => c.hub_id === formData.hub_id);
-      setFilteredChargers(filtered);
-    } else {
-      setFilteredChargers([]);
-    }
-  }, [formData.hub_id, chargers]);
-
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({ 
@@ -346,35 +357,58 @@ const AddCustomerTariff = () => {
     setShowGroupDropdown(false);
   };
 
-  const handleHubChange = (e) => {
-    const hubId = e.target.value;
-    setFormData(prev => ({ 
-      ...prev, 
-      hub_id: hubId,
-      charger_id: '' // Reset charger when hub changes
-    }));
-    if (formErrors.hub_id) {
-      setFormErrors(prev => ({ ...prev, hub_id: '' }));
+  // ============================================================================
+  // SECTION 29 - Temporal Role Selection
+  // ============================================================================
+  const setTemporalRole = (role) => {
+    setFormData(prev => ({ ...prev, temporal_role: role }));
+    
+    const today = new Date();
+    const future = new Date();
+    future.setMonth(future.getMonth() + 1);
+    
+    switch(role) {
+      case 'root':
+        // Root: start_date and end_date are optional - clear them
+        setFormData(prev => ({ ...prev, start_date: '', end_date: '' }));
+        break;
+      case 'baseline':
+        setFormData(prev => ({ ...prev, start_date: today.toISOString().split('T')[0], end_date: '' }));
+        break;
+      case 'temporary':
+        setFormData(prev => ({ 
+          ...prev, 
+          start_date: today.toISOString().split('T')[0], 
+          end_date: future.toISOString().split('T')[0] 
+        }));
+        break;
+      default:
+        break;
     }
   };
 
+  // ============================================================================
+  // SECTION 30 - Client-side Validation
+  // ============================================================================
   const validateForm = () => {
     const errors = {};
+    
     if (!selectedGroup) {
       errors.group = 'Please select a customer group';
     }
-    if (!formData.hub_id) {
-      errors.hub_id = 'Hub is required';
+    
+    if (formData.price_per_unit === '' || formData.price_per_unit === null || formData.price_per_unit === undefined) {
+      errors.price_per_unit = 'Price is required';
+    } else if (isNaN(formData.price_per_unit) || parseFloat(formData.price_per_unit) < 0) {
+      errors.price_per_unit = 'Please enter a valid price';
     }
-    if (!formData.price_per_kwh) {
-      errors.price_per_kwh = 'Price per kWh is required';
-    } else if (isNaN(formData.price_per_kwh) || parseFloat(formData.price_per_kwh) < 0) {
-      errors.price_per_kwh = 'Please enter a valid price';
-    }
+    
     if (formData.idle_fee_per_min && (isNaN(formData.idle_fee_per_min) || parseFloat(formData.idle_fee_per_min) < 0)) {
       errors.idle_fee_per_min = 'Please enter a valid idle fee';
     }
-    // Validate date range if both are provided
+    
+    // SECTION 6 - Invalid date shapes
+    // Only validate date range if both are provided (for root, dates are optional)
     if (formData.start_date && formData.end_date) {
       const start = new Date(formData.start_date);
       const end = new Date(formData.end_date);
@@ -382,11 +416,58 @@ const AddCustomerTariff = () => {
         errors.date_range = 'Start date must be before end date';
       }
     }
+    
+    // SECTION 6 - End without start is invalid (unless it's root with both empty)
+    if (!formData.start_date && formData.end_date) {
+      errors.date_range = 'End date without start date is not allowed';
+    }
+    
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // Submit to CreateUserGroupTariff API - matches backend exactly
+  // ============================================================================
+  // SECTION 18 - Create Semantics
+  // ============================================================================
+  const buildApiPayload = () => {
+    const pricePerUnit = parseFloat(formData.price_per_unit) || 0;
+    const idleFeePerMin = parseFloat(formData.idle_fee_per_min) || 0;
+    
+    const payload = {
+      price_per_unit: Number(pricePerUnit.toFixed(4)).toString(),
+      idle_fee_per_min: Number(idleFeePerMin.toFixed(4)).toString(),
+      currency: formData.currency,
+      is_active: formData.is_active,
+      tariff_type: 'fixed',
+      price_type: PRICE_TYPE_MAP[formData.price_type] || 'energy',
+    };
+
+    // SECTION 12 - Sessions pricing omits units
+    if (formData.price_type === 'Energy') {
+      payload.units = 'kwh';
+    } else if (formData.price_type === 'Time') {
+      payload.units = 'minutes';
+    }
+    // For Sessions, omit units
+
+    // SECTION 5 - Temporal roles
+    if (formData.temporal_role === 'root') {
+      // Root: start=null, end=null (dates are optional)
+      payload.start_date = null;
+      payload.end_date = null;
+    } else if (formData.temporal_role === 'baseline' && formData.start_date) {
+      // Baseline: start=date, end=null
+      payload.start_date = new Date(formData.start_date).toISOString();
+      payload.end_date = null;
+    } else if (formData.temporal_role === 'temporary' && formData.start_date && formData.end_date) {
+      // Temporary: start=date, end=date
+      payload.start_date = new Date(formData.start_date).toISOString();
+      payload.end_date = new Date(formData.end_date).toISOString();
+    }
+
+    return payload;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -399,66 +480,81 @@ const AddCustomerTariff = () => {
     setSuccess('');
 
     try {
-      // Build payload matching backend CreateUserGroupTariff request
-      const payload = {
-        hub_id: formData.hub_id,
-        price_per_kwh: parseFloat(formData.price_per_kwh),
-        idle_fee_per_min: parseFloat(formData.idle_fee_per_min) || 0,
-        currency: formData.currency,
-        is_active: formData.is_active
-      };
+      const apiPayload = buildApiPayload();
 
-      // Optional fields - only include if provided
-      if (formData.charger_id) {
-        payload.charger_id = formData.charger_id;
-      }
-      if (formData.gst_id) {
-        payload.gst_id = formData.gst_id;
-      }
-      if (formData.start_date) {
-        payload.start_date = formData.start_date;
-      }
-      if (formData.end_date) {
-        payload.end_date = formData.end_date;
-      }
-
-      console.log('📤 Creating user group tariff payload:', payload);
+      console.log('📤 UI Display Values:', {
+        temporal_role: formData.temporal_role,
+        price_type_display: formData.price_type,
+        units_display: formData.units || 'omitted'
+      });
+      console.log('📤 Full API Payload:', JSON.stringify(apiPayload, null, 2));
 
       const response = await authenticatedRequest(
         API_CONFIG.USER_GROUP_TARIFFS_API(selectedGroup.id),
         {
           method: 'POST',
-          body: JSON.stringify(payload)
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(apiPayload)
         }
       );
 
-      const data = await response.json();
-      console.log('📥 Response:', data);
+      let data;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
+
+      console.log('📥 Response Status:', response.status);
+      console.log('📥 Response Data:', data);
 
       if (response.ok) {
-        setSuccess('Tariff created successfully!');
-        // Reset form
+        setSuccess('User group tariff created successfully!');
         setFormData({
-          hub_id: '',
-          charger_id: '',
-          gst_id: '',
-          price_per_kwh: '',
+          price_per_unit: '',
           idle_fee_per_min: '0',
           currency: 'INR',
           is_active: true,
           start_date: '',
-          end_date: ''
+          end_date: '',
+          tariff_type: 'Standard',
+          price_type: 'Energy',
+          units: 'kWh',
+          temporal_role: 'root'
         });
-        // Navigate back to tariffs list after delay
+        setSelectedGroup(null);
+        
         setTimeout(() => {
           navigate('/revenue/customer-tariffs');
         }, 2000);
       } else {
-        setError(data.message || data.error?.message || 'Failed to create tariff');
+        let errorMessage = 'Failed to create tariff';
+        if (data.message) {
+          errorMessage = data.message;
+        } else if (data.error?.message) {
+          errorMessage = data.error.message;
+        } else if (data.error?.code) {
+          // SECTION 32 - Error Code Mapping
+          if (data.error.code === 'tariff_temporal_conflict') {
+            errorMessage = 'This tariff conflicts with another tariff on the same group. Adjust the schedule or keep it disabled.';
+          } else {
+            errorMessage = `${data.error.code}: ${data.error.message || 'Unknown error'}`;
+          }
+        }
+        setError(errorMessage);
       }
     } catch (error) {
       console.error('Error creating tariff:', error);
-      setError('An error occurred while creating the tariff');
+      setError(error.message || 'An error occurred while creating the tariff');
     } finally {
       setIsSubmitting(false);
     }
@@ -477,8 +573,8 @@ const AddCustomerTariff = () => {
 
   const getStatusColor = (isActive) => {
     return isActive 
-      ? 'bg-green-100 text-green-700 border-green-200'
-      : 'bg-red-100 text-red-700 border-red-200';
+      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      : 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
   const getStatusIcon = (isActive) => {
@@ -489,21 +585,21 @@ const AddCustomerTariff = () => {
 
   // Settings Dropdown Menu
   const SettingsMenu = () => (
-    <div className="absolute top-full right-0 mt-2 bg-black rounded-2xl w-80 shadow-2xl border border-gray-800 z-50 overflow-hidden">
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-5 py-4">
+    <div className="absolute top-full right-0 mt-2 bg-white rounded-2xl w-80 shadow-2xl border border-gray-100 z-50 overflow-hidden">
+      <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-2xl font-bold text-white border-2 border-white/30 flex-shrink-0">
+          <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white border-2 border-white/30 flex-shrink-0">
             {userData?.user?.full_name?.charAt(0) || user?.name?.charAt(0) || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-base font-semibold text-white truncate">
               {userData?.user?.full_name || user?.name || 'User'}
             </h4>
-            <p className="text-sm text-gray-400 truncate">
+            <p className="text-sm text-white/80 truncate">
               {userData?.user?.email || user?.email || 'user@transev.com'}
             </p>
             {userData?.role && (
-              <span className="inline-block mt-1 px-2 py-0.5 bg-white/10 rounded-full text-xs text-gray-300 border border-gray-600">
+              <span className="inline-block mt-1 px-2 py-0.5 bg-white/20 rounded-full text-xs text-white border border-white/30">
                 {userData.role}
               </span>
             )}
@@ -512,14 +608,14 @@ const AddCustomerTariff = () => {
       </div>
       
       <div className="p-2">
-        <button onClick={() => { setShowSettingsMenu(false); navigate('/profile'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
-          <User size={16} className="text-gray-500" /> <span>Profile</span>
+        <button onClick={() => { setShowSettingsMenu(false); navigate('/profile'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
+          <User size={16} className="text-gray-400" /> <span>Profile</span>
         </button>
-        <button onClick={() => { setShowSettingsMenu(false); navigate('/organization'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
-          <Building size={16} className="text-gray-500" /> <span>Organization</span>
+        <button onClick={() => { setShowSettingsMenu(false); navigate('/organization'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
+          <Building size={16} className="text-gray-400" /> <span>Organization</span>
         </button>
-        <div className="border-t border-gray-700 my-1"></div>
-        <button onClick={() => { setShowSettingsMenu(false); handleLogout(); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-red-900/30 text-sm font-medium text-red-400 hover:text-red-300 flex items-center gap-3 transition">
+        <div className="border-t border-gray-100 my-1"></div>
+        <button onClick={() => { setShowSettingsMenu(false); handleLogout(); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-red-50 text-sm font-medium text-red-600 hover:text-red-700 flex items-center gap-3 transition">
           <LogOut size={16} className="text-red-500" /> <span>Sign Out</span>
         </button>
       </div>
@@ -528,12 +624,12 @@ const AddCustomerTariff = () => {
 
   // Add Dropdown Menu
   const AddMenu = () => (
-    <div className="absolute top-full right-0 mt-2 bg-black rounded-2xl w-64 shadow-2xl border border-gray-800 z-50">
+    <div className="absolute top-full right-0 mt-2 bg-white rounded-2xl w-64 shadow-2xl border border-gray-100 z-50">
       <div className="p-3">
-        <button onClick={() => { setShowAddMenu(false); navigate("/add-hub"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
+        <button onClick={() => { setShowAddMenu(false); navigate("/add-hub"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
           <Zap size={18} className="text-gray-400" /> Add Hub
         </button>
-        <button onClick={() => { setShowAddMenu(false); navigate("/add-charger"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
+        <button onClick={() => { setShowAddMenu(false); navigate("/add-charger"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
           <Zap size={18} className="text-gray-400" /> Add Charger
         </button>
       </div>
@@ -566,7 +662,7 @@ const AddCustomerTariff = () => {
 
       <div className="flex-1 min-w-0">
         {/* HEADER */}
-        <header className="bg-white border-b-2 border-gray-200 px-6 py-6 sticky top-0 z-30 shadow-sm">
+        <header className="bg-white border-b-2 border-gray-100 px-6 py-6 sticky top-0 z-30 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button 
@@ -578,7 +674,7 @@ const AddCustomerTariff = () => {
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-bold text-gray-800">Add Customer Tariff</h1>
                 <span className="text-gray-300 text-xl">/</span>
-                <span className="text-sm text-blue-500 font-medium mt-1">New Tariff</span>
+                <span className="text-sm text-green-500 font-medium mt-1">User Group Tariff</span>
               </div>
             </div>
             
@@ -591,7 +687,7 @@ const AddCustomerTariff = () => {
                 {showSettingsMenu && <SettingsMenu />}
               </div>
               <div className="relative">
-                <button onClick={() => setShowAddMenu(!showAddMenu)} className="w-9 h-9 rounded-full bg-green-600 text-white flex items-center justify-center hover:bg-green-700 transition shadow-lg shadow-green-500/25">
+                <button onClick={() => setShowAddMenu(!showAddMenu)} className="w-9 h-9 rounded-full bg-gradient-to-r from-green-600 to-emerald-600 text-white flex items-center justify-center hover:from-green-700 hover:to-emerald-700 transition shadow-lg shadow-green-500/25">
                   <Plus size={18} />
                 </button>
                 {showAddMenu && <AddMenu />}
@@ -607,11 +703,11 @@ const AddCustomerTariff = () => {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                  <Tag size={24} className="text-green-600" />
-                  Create New Customer Tariff
+                  <Users size={24} className="text-green-600" />
+                  Create User Group Tariff
                 </h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  Set up pricing for a specific customer group (User Group Tariff)
+                  Set up pricing for a specific customer group. Multiple tariffs can coexist with different temporal roles.
                 </p>
               </div>
               <div className="flex items-center gap-3 text-sm">
@@ -628,17 +724,17 @@ const AddCustomerTariff = () => {
           </div>
 
           {/* Form Card */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-green-50 to-white">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-green-50 to-white">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Sparkles size={20} className="text-green-600" />
                 Tariff Configuration
               </h3>
-              <p className="text-sm text-gray-500 mt-1">Configure the pricing and rules for this customer group tariff</p>
+              <p className="text-sm text-gray-500 mt-1">Configure the pricing and rules for this user group tariff</p>
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              {/* Customer Group Selection */}
+              {/* Customer Group Selection - Required */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Customer Group <span className="text-red-500 text-lg">*</span>
@@ -648,7 +744,7 @@ const AddCustomerTariff = () => {
                     type="button"
                     onClick={() => setShowGroupDropdown(!showGroupDropdown)}
                     className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border ${
-                      formErrors.group ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-green-500'
+                      formErrors.group ? 'border-red-300 focus:ring-red-500' : 'border-gray-200 focus:ring-green-500'
                     } focus:outline-none focus:ring-2 focus:border-transparent transition bg-gray-50 hover:bg-white`}
                   >
                     <div className="flex items-center gap-3">
@@ -661,7 +757,7 @@ const AddCustomerTariff = () => {
                   </button>
                   
                   {showGroupDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl border border-gray-200 shadow-lg z-50 max-h-60 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl border border-gray-100 shadow-lg z-50 max-h-60 overflow-y-auto">
                       {userGroups.length === 0 ? (
                         <div className="p-4 text-center text-gray-500">
                           <Users size={24} className="mx-auto mb-2 text-gray-300" />
@@ -704,119 +800,149 @@ const AddCustomerTariff = () => {
                 )}
               </div>
 
-              {/* Hub Selection - Required */}
+              {/* SECTION 29 - Temporal Role Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Hub <span className="text-red-500 text-lg">*</span>
+                  Temporal Role <span className="text-red-500 text-lg">*</span>
                 </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                    <Layers size={18} />
-                  </div>
-                  <select
-                    name="hub_id"
-                    value={formData.hub_id}
-                    onChange={handleHubChange}
-                    className={`w-full pl-10 pr-10 py-3 rounded-xl border ${
-                      formErrors.hub_id ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-green-500'
-                    } focus:outline-none focus:ring-2 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white`}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTemporalRole('root')}
+                    className={`px-4 py-3 rounded-xl text-sm font-medium transition border-2 ${
+                      formData.temporal_role === 'root'
+                        ? 'border-purple-500 bg-purple-50 text-purple-700 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    }`}
                   >
-                    <option value="">Select a hub</option>
-                    {loadingHubs ? (
-                      <option value="" disabled>Loading hubs...</option>
-                    ) : (
-                      hubs.map((hub) => (
-                        <option key={hub.id} value={hub.id}>
-                          {hub.name}
-                        </option>
-                      ))
+                    <div className="flex items-center gap-2 justify-center">
+                      <Crown size={18} className={formData.temporal_role === 'root' ? 'text-purple-500' : 'text-gray-400'} />
+                      <span>Root</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Timeless fallback</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTemporalRole('baseline')}
+                    className={`px-4 py-3 rounded-xl text-sm font-medium transition border-2 ${
+                      formData.temporal_role === 'baseline'
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 justify-center">
+                      <CalendarRange size={18} className={formData.temporal_role === 'baseline' ? 'text-blue-500' : 'text-gray-400'} />
+                      <span>Baseline</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Open-ended fallback</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTemporalRole('temporary')}
+                    className={`px-4 py-3 rounded-xl text-sm font-medium transition border-2 ${
+                      formData.temporal_role === 'temporary'
+                        ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-sm'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 justify-center">
+                      <Timer size={18} className={formData.temporal_role === 'temporary' ? 'text-orange-500' : 'text-gray-400'} />
+                      <span>Temporary</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Bounded override</p>
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">
+                  {formData.temporal_role === 'root' && 'Root: start=null, end=null - timeless fallback'}
+                  {formData.temporal_role === 'baseline' && 'Baseline: start=date, end=null - open-ended fallback from date'}
+                  {formData.temporal_role === 'temporary' && 'Temporary: start=date, end=date - bounded override [start, end)'}
+                </p>
+                <p className="mt-1 text-xs text-green-600">
+                  <Info size={14} className="inline mr-1" />
+                  Multiple tariffs with different roles can coexist on the same group.
+                </p>
+              </div>
+
+              {/* Date Range - Optional for Root, Required for others */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Date Range
+                  </label>
+                  {formData.temporal_role === 'root' && (
+                    <span className="text-xs text-gray-400">(Optional for Root)</span>
+                  )}
+                  {formData.temporal_role === 'baseline' && (
+                    <span className="text-xs text-red-500">(Start Date Required)</span>
+                  )}
+                  {formData.temporal_role === 'temporary' && (
+                    <span className="text-xs text-red-500">(Start & End Date Required)</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Start Date {formData.temporal_role === 'root' ? '(Optional)' : <span className="text-red-500">*</span>}
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                        <CalendarDays size={18} />
+                      </div>
+                      <input
+                        type="date"
+                        name="start_date"
+                        value={formData.start_date}
+                        onChange={handleChange}
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition bg-gray-50 hover:bg-white ${
+                          formData.temporal_role === 'root' ? 'border-dashed border-gray-300' : ''
+                        }`}
+                        required={formData.temporal_role !== 'root'}
+                      />
+                    </div>
+                    {formData.temporal_role === 'root' && (
+                      <p className="mt-1 text-xs text-gray-400">Leave empty for root tariff</p>
                     )}
-                  </select>
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
-                    <ChevronDown size={18} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      End Date {formData.temporal_role === 'root' ? '(Optional)' : formData.temporal_role === 'temporary' ? <span className="text-red-500">*</span> : '(Optional)'}
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                        <CalendarDays size={18} />
+                      </div>
+                      <input
+                        type="date"
+                        name="end_date"
+                        value={formData.end_date}
+                        onChange={handleChange}
+                        disabled={formData.temporal_role === 'baseline'}
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition bg-gray-50 hover:bg-white ${
+                          formData.temporal_role === 'baseline' ? 'bg-gray-100 cursor-not-allowed' : ''
+                        } ${formData.temporal_role === 'root' ? 'border-dashed border-gray-300' : ''}`}
+                        required={formData.temporal_role === 'temporary'}
+                      />
+                    </div>
+                    {formData.temporal_role === 'baseline' && (
+                      <p className="mt-1 text-xs text-gray-400">Baseline has no expiry</p>
+                    )}
+                    {formData.temporal_role === 'root' && (
+                      <p className="mt-1 text-xs text-gray-400">Leave empty for root tariff</p>
+                    )}
                   </div>
                 </div>
-                {formErrors.hub_id && (
+                {formErrors.date_range && (
                   <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
                     <AlertCircle size={14} />
-                    {formErrors.hub_id}
+                    {formErrors.date_range}
                   </p>
                 )}
-                <p className="mt-1 text-xs text-gray-400">Select the hub where this tariff will apply</p>
               </div>
 
-              {/* Charger Selection (Optional) - Filtered by Hub */}
+              {/* Price per Unit - Required */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Charger <span className="text-gray-400 text-sm">(optional)</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                    <Zap size={18} />
-                  </div>
-                  <select
-                    name="charger_id"
-                    value={formData.charger_id}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
-                  >
-                    <option value="">Select a charger (optional)</option>
-                    {loadingChargers ? (
-                      <option value="" disabled>Loading chargers...</option>
-                    ) : filteredChargers.length > 0 ? (
-                      filteredChargers.map((charger) => (
-                        <option key={charger.id} value={charger.id}>
-                          {charger.charger_name || charger.charger_id || charger.id}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="" disabled>No chargers available for this hub</option>
-                    )}
-                  </select>
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
-                    <ChevronDown size={18} />
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-gray-400">Optional: Apply tariff to a specific charger</p>
-              </div>
-
-              {/* GST Selection (Optional) */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  GST Profile <span className="text-gray-400 text-sm">(optional)</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                    <Receipt size={18} />
-                  </div>
-                  <select
-                    name="gst_id"
-                    value={formData.gst_id}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
-                  >
-                    <option value="">Select GST profile (optional)</option>
-                    {loadingGST ? (
-                      <option value="" disabled>Loading GST profiles...</option>
-                    ) : (
-                      gstList.map((gst) => (
-                        <option key={gst.id} value={gst.id}>
-                          {gst.name} (SGST: {gst.sgst_rate}%, CGST: {gst.cgst_rate}%, IGST: {gst.igst_rate}%)
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
-                    <ChevronDown size={18} />
-                  </div>
-                </div>
-                <p className="mt-1 text-xs text-gray-400">Optional: Apply GST rates to this tariff</p>
-              </div>
-
-              {/* Price per kWh - Required */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Price per kWh <span className="text-red-500 text-lg">*</span>
+                  Price per Unit <span className="text-red-500 text-lg">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
@@ -824,24 +950,29 @@ const AddCustomerTariff = () => {
                   </div>
                   <input
                     type="number"
-                    name="price_per_kwh"
-                    value={formData.price_per_kwh}
+                    name="price_per_unit"
+                    value={formData.price_per_unit}
                     onChange={handleChange}
                     placeholder="0.00"
                     step="0.01"
                     min="0"
                     className={`w-full pl-10 pr-4 py-3 rounded-xl border ${
-                      formErrors.price_per_kwh ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-green-500'
+                      formErrors.price_per_unit ? 'border-red-300 focus:ring-red-500' : 'border-gray-200 focus:ring-green-500'
                     } focus:outline-none focus:ring-2 focus:border-transparent transition bg-gray-50 hover:bg-white`}
                     required
                   />
                 </div>
-                {formErrors.price_per_kwh && (
+                {formErrors.price_per_unit && (
                   <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
                     <AlertCircle size={14} />
-                    {formErrors.price_per_kwh}
+                    {formErrors.price_per_unit}
                   </p>
                 )}
+                <p className="mt-1 text-xs text-gray-400">
+                  {formData.price_type === 'Energy' && 'Enter price per kWh (e.g., 18.50)'}
+                  {formData.price_type === 'Time' && 'Enter price per minute (e.g., 2.50)'}
+                  {formData.price_type === 'Sessions' && 'Enter price per session (e.g., 100.00)'}
+                </p>
               </div>
 
               {/* Idle Fee per Minute - Optional */}
@@ -862,7 +993,7 @@ const AddCustomerTariff = () => {
                     step="0.01"
                     min="0"
                     className={`w-full pl-10 pr-4 py-3 rounded-xl border ${
-                      formErrors.idle_fee_per_min ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-green-500'
+                      formErrors.idle_fee_per_min ? 'border-red-300 focus:ring-red-500' : 'border-gray-200 focus:ring-green-500'
                     } focus:outline-none focus:ring-2 focus:border-transparent transition bg-gray-50 hover:bg-white`}
                   />
                 </div>
@@ -872,80 +1003,100 @@ const AddCustomerTariff = () => {
                     {formErrors.idle_fee_per_min}
                   </p>
                 )}
-                <p className="mt-1 text-xs text-gray-400">Fee charged per minute when charger is idle</p>
+                <p className="mt-1 text-xs text-gray-400">Must be 0 (idle fee is not supported)</p>
               </div>
 
-              {/* Currency */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Currency
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                    <Globe size={18} />
-                  </div>
-                  <select
-                    name="currency"
-                    value={formData.currency}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
-                  >
-                    <option value="INR">INR - Indian Rupee</option>
-                    <option value="USD">USD - US Dollar</option>
-                    <option value="EUR">EUR - Euro</option>
-                    <option value="GBP">GBP - British Pound</option>
-                  </select>
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
-                    <ChevronDown size={18} />
-                  </div>
-                </div>
-              </div>
-
-              {/* Date Range (Optional) */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Currency, Price Type, Units */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Start Date <span className="text-gray-400 text-sm">(optional)</span>
+                    Currency <span className="text-red-500 text-lg">*</span>
                   </label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                      <CalendarDays size={18} />
+                      <Globe size={18} />
                     </div>
-                    <input
-                      type="date"
-                      name="start_date"
-                      value={formData.start_date}
+                    <select
+                      name="currency"
+                      value={formData.currency}
                       onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition bg-gray-50 hover:bg-white"
-                    />
+                      className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
+                    >
+                      <option value="INR">INR - Indian Rupee</option>
+                      <option value="USD">USD - US Dollar</option>
+                      <option value="EUR">EUR - Euro</option>
+                      <option value="GBP">GBP - British Pound</option>
+                    </select>
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
+                      <ChevronDown size={18} />
+                    </div>
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    End Date <span className="text-gray-400 text-sm">(optional)</span>
+                    Price Type <span className="text-red-500 text-lg">*</span>
                   </label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                      <CalendarDays size={18} />
+                      <DollarSign size={18} />
                     </div>
-                    <input
-                      type="date"
-                      name="end_date"
-                      value={formData.end_date}
+                    <select
+                      name="price_type"
+                      value={formData.price_type}
                       onChange={handleChange}
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition bg-gray-50 hover:bg-white"
-                    />
+                      className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
+                    >
+                      <option value="Energy">Energy (per kWh)</option>
+                      <option value="Time">Time (per minute)</option>
+                      <option value="Sessions">Sessions (per session)</option>
+                    </select>
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Units <span className="text-red-500 text-lg">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                      <Gauge size={18} />
+                    </div>
+                    <select
+                      name="units"
+                      value={formData.units}
+                      onChange={handleChange}
+                      disabled={formData.price_type === 'Sessions'}
+                      className="w-full pl-10 pr-10 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition appearance-none bg-gray-50 hover:bg-white"
+                    >
+                      {formData.price_type === 'Energy' && (
+                        <option value="kWh">kWh</option>
+                      )}
+                      {formData.price_type === 'Time' && (
+                        <option value="minutes">Minutes</option>
+                      )}
+                      {formData.price_type === 'Sessions' && (
+                        <option value="">Units omitted for Sessions</option>
+                      )}
+                    </select>
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none text-gray-400">
+                      <ChevronDown size={18} />
+                    </div>
                   </div>
                 </div>
               </div>
-              {formErrors.date_range && (
-                <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
-                  <AlertCircle size={14} />
-                  {formErrors.date_range}
-                </p>
+
+              {formData.price_type === 'Sessions' && (
+                <div className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+                  <p className="text-xs text-blue-700">
+                    <Info size={14} className="inline mr-1" />
+                    Sessions pricing: One fixed amount for one completed session. Units are omitted.
+                  </p>
+                </div>
               )}
 
-              {/* Active Status */}
+              {/* SECTION 9 - is_active semantics */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Status
@@ -975,33 +1126,52 @@ const AddCustomerTariff = () => {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-700">
-                      {formData.is_active ? 'Active' : 'Inactive'}
+                      {formData.is_active ? 'Enabled' : 'Disabled'}
                     </p>
                     <p className="text-xs text-gray-400">
                       {formData.is_active 
-                        ? 'Tariff will be available for use' 
-                        : 'Tariff will be hidden and inactive'}
+                        ? 'Tariff participates in resolution' 
+                        : 'Tariff ignored by resolver'}
                     </p>
                   </div>
                 </div>
+                <p className="mt-1 text-xs text-green-600">
+                  <Info size={14} className="inline mr-1" />
+                  Multiple tariffs can be enabled on the same group with different temporal roles.
+                </p>
               </div>
 
-              {/* Info Box */}
+              {/* SECTION 4 - Scope Precedence Info */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
                 <div className="flex items-start gap-3">
                   <Info size={18} className="text-green-600 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-green-800">What is a Customer Group Tariff?</p>
+                    <p className="text-sm font-medium text-green-800">User Group Tariff Overview</p>
                     <p className="text-sm text-green-700 mt-1">
-                      Customer group tariffs define the pricing structure for specific user groups.
-                      This tariff will be applied to all customers belonging to the selected group.
-                      You can optionally restrict it to a specific hub, charger, or apply GST rates.
-                      The tariff includes price per kWh and optional idle fees with a validity period.
+                      This tariff applies at the <strong>User Group</strong> level and takes precedence over
+                      Charger and Hub tariffs.
                     </p>
                     <p className="text-sm text-green-700 mt-2">
-                      <strong>Note:</strong> This is a User Group Tariff which is applied at the customer group level
-                      and can be optionally scoped to a specific hub or charger.
+                      <strong>Temporal Role:</strong> {formData.temporal_role === 'root' ? 'Root (no expiry)' : formData.temporal_role === 'baseline' ? 'Baseline (open-ended)' : 'Temporary (bounded)'}
                     </p>
+                    <p className="text-sm text-green-700 mt-1">
+                      <strong>Temporal Hierarchy:</strong> Temporary Override &gt; Latest Baseline &gt; Root
+                    </p>
+                    <p className="text-sm text-green-700 mt-1">
+                      <strong>API Mapping:</strong> Price Type: {formData.price_type} → {PRICE_TYPE_MAP[formData.price_type]}, 
+                      Units: {formData.price_type === 'Sessions' ? 'omitted' : (formData.units || 'kWh')}
+                    </p>
+                    <p className="text-sm text-green-700 mt-1">
+                      <strong>GST Note:</strong> GST is managed separately at the Hub level and is not included in tariff creation.
+                    </p>
+                    <p className="text-sm text-green-700 mt-1 font-medium">
+                      💡 You can create multiple tariffs on the same group with different roles (Root, Baseline, Temporary).
+                    </p>
+                    {formData.temporal_role === 'root' && (
+                      <p className="text-sm text-purple-700 mt-2 font-medium">
+                        🔵 Root Tariff: Dates are optional. Leave both empty for a permanent fallback.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1015,14 +1185,14 @@ const AddCustomerTariff = () => {
               )}
 
               {success && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-2 text-green-700">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-2 text-emerald-700">
                   <CheckCircle size={18} className="flex-shrink-0" />
                   <span>{success}</span>
                 </div>
               )}
 
               {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
+              <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -1035,7 +1205,7 @@ const AddCustomerTariff = () => {
                     </>
                   ) : (
                     <>
-                      <Tag size={20} />
+                      <Users size={20} />
                       Create Tariff
                       <ArrowRight size={18} className="group-hover:translate-x-1 transition" />
                     </>
@@ -1054,38 +1224,64 @@ const AddCustomerTariff = () => {
 
           {/* Features Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition group">
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition group">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                  <Tag className="w-5 h-5 text-green-600" />
+                  <Users className="w-5 h-5 text-green-600" />
                 </div>
                 <h4 className="font-semibold text-gray-900">Group Specific Pricing</h4>
               </div>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Create custom pricing structures for different customer groups and usage patterns
+                Create custom pricing structures for different customer groups
               </p>
             </div>
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition group">
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition group">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
                   <CalendarDays className="w-5 h-5 text-blue-600" />
                 </div>
-                <h4 className="font-semibold text-gray-900">Hub & Charger Specific</h4>
+                <h4 className="font-semibold text-gray-900">Flexible Pricing</h4>
               </div>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Apply tariffs to specific hubs or individual chargers within the hub
+                Support for Energy (per kWh), Time (per minute), and Sessions pricing models
               </p>
             </div>
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition group">
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition group">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl flex items-center justify-center group-hover:scale-110 transition">
-                  <Receipt className="w-5 h-5 text-purple-600" />
+                  <Infinity className="w-5 h-5 text-purple-600" />
                 </div>
-                <h4 className="font-semibold text-gray-900">GST Integration</h4>
+                <h4 className="font-semibold text-gray-900">Validity Period</h4>
               </div>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Automatically apply GST rates (SGST, CGST, IGST) to your tariffs
+                Set optional start and end dates for tariff validity
               </p>
+            </div>
+          </div>
+
+          {/* Multi-Tariff Info */}
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4 mt-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <Info size={16} className="text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-green-800">Multiple Tariffs Support</p>
+                <p className="text-sm text-green-700 mt-1">
+                  You can create multiple tariffs on the same group with different temporal roles:
+                </p>
+                <ul className="text-sm text-green-700 mt-1 list-disc list-inside">
+                  <li><strong>Root:</strong> Timeless fallback (start=null, end=null) - <span className="text-purple-600">Dates optional</span></li>
+                  <li><strong>Baseline:</strong> Open-ended fallback (start=date, end=null)</li>
+                  <li><strong>Temporary:</strong> Bounded override (start=date, end=date)</li>
+                </ul>
+                <p className="text-sm text-green-700 mt-1">
+                  The resolver selects the most appropriate tariff based on scope and temporal precedence.
+                </p>
+                <p className="text-sm text-green-700 mt-1 font-medium">
+                  UserGroup &gt; Charger &gt; Hub
+                </p>
+              </div>
             </div>
           </div>
         </div>
