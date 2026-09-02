@@ -143,7 +143,8 @@ const API_CONFIG = {
   PERMISSIONS_CATALOG: `${API_BASE_URL}/api/v1/cpo/permissions/catalog`,
   STAFF_CREATE: `${API_BASE_URL}/api/v1/cpo/staff`,
   STAFF_UPDATE: (membershipId) => `${API_BASE_URL}/api/v1/cpo/staff/${membershipId}`,
-  USER_INFO_API: `${API_BASE_URL}/api/v1/auth/me`
+  USER_INFO_API: `${API_BASE_URL}/api/v1/auth/me`,
+  ACCESS_ME_API: `${API_BASE_URL}/api/v1/cpo/access/me`
 };
 
 // Get module color
@@ -175,9 +176,9 @@ const getModuleIcon = (module) => {
 
 // Role options
 const ROLE_OPTIONS = [
-  { value: 'ADMIN', label: 'Admin', icon: <CrownIcon2 size={16} className="text-purple-600" />, color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { value: 'OPERATOR', label: 'Operator', icon: <Activity size={16} className="text-blue-600" />, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { value: 'VIEWER', label: 'Viewer', icon: <Eye size={16} className="text-gray-600" />, color: 'bg-gray-100 text-gray-700 border-gray-200' }
+  { value: 'ADMIN', label: 'Admin', icon: <CrownIcon2 size={16} className="text-purple-600" />, color: 'bg-purple-100 text-purple-700 border-purple-200', description: 'Full access with permission management' },
+  { value: 'OPERATOR', label: 'Operator', icon: <Activity size={16} className="text-blue-600" />, color: 'bg-blue-100 text-blue-700 border-blue-200', description: 'Operational access for daily tasks' },
+  { value: 'VIEWER', label: 'Viewer', icon: <Eye size={16} className="text-gray-600" />, color: 'bg-gray-100 text-gray-700 border-gray-200', description: 'Read-only access' }
 ];
 
 const AddStaff = () => {
@@ -194,11 +195,13 @@ const AddStaff = () => {
   
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [userData, setUserData] = useState(null);
+  const [accessData, setAccessData] = useState(null);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showToast, setShowToast] = useState({ visible: false, message: '', type: '' });
   
   // Permissions state
   const [permissionsCatalog, setPermissionsCatalog] = useState([]);
@@ -215,6 +218,10 @@ const AddStaff = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState(null);
 
+  // Permission check
+  const canManageStaff = accessData?.effective?.includes('staff.manage') || false;
+  const canManagePermissions = accessData?.effective?.includes('staff.permissions.manage') || false;
+
   // Check if editing from location state
   useEffect(() => {
     if (location.state?.editData) {
@@ -226,7 +233,6 @@ const AddStaff = () => {
         full_name: editData.user_name || editData.full_name || '',
         role: editData.role || 'VIEWER'
       });
-      // Convert overrides to selected permissions
       if (editData.overrides && Array.isArray(editData.overrides)) {
         const overrideKeys = editData.overrides.map(o => 
           typeof o === 'string' ? o : o.permission || o.key || o
@@ -251,6 +257,21 @@ const AddStaff = () => {
     }
   };
 
+  // Fetch access info
+  const fetchAccessInfo = async () => {
+    try {
+      const response = await authenticatedRequest(API_CONFIG.ACCESS_ME_API, {
+        method: 'GET'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAccessData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching access info:', error);
+    }
+  };
+
   // Fetch permissions catalog
   const fetchPermissionsCatalog = async () => {
     try {
@@ -267,8 +288,6 @@ const AddStaff = () => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('📥 Permissions catalog:', data);
-        
         let permissions = [];
         if (Array.isArray(data)) {
           permissions = data;
@@ -277,14 +296,19 @@ const AddStaff = () => {
         } else if (data.data) {
           permissions = data.data;
         }
-        
         setPermissionsCatalog(permissions);
-      } else {
-        console.error('Failed to fetch permissions catalog:', response.status);
       }
     } catch (error) {
       console.error('Error fetching permissions catalog:', error);
     }
+  };
+
+  // Toast message
+  const showToastMessage = (message, type = 'success') => {
+    setShowToast({ visible: true, message, type });
+    setTimeout(() => {
+      setShowToast({ visible: false, message: '', type: '' });
+    }, 4000);
   };
 
   // Handle form submission
@@ -303,7 +327,6 @@ const AddStaff = () => {
     try {
       const token = localStorage.getItem('token');
       
-      // Build the request body with overrides
       const requestBody = {
         email: formData.email,
         full_name: formData.full_name || formData.email.split('@')[0],
@@ -318,7 +341,6 @@ const AddStaff = () => {
 
       let response;
       if (isEditing && editId) {
-        // Update existing staff - use PATCH
         const url = API_CONFIG.STAFF_UPDATE(editId);
         response = await fetch(url, {
           method: 'PATCH',
@@ -337,7 +359,6 @@ const AddStaff = () => {
           })
         });
       } else {
-        // Create new staff
         response = await fetch(API_CONFIG.STAFF_CREATE, {
           method: 'POST',
           headers: {
@@ -354,22 +375,18 @@ const AddStaff = () => {
         const data = await response.json();
         console.log('✅ Staff saved:', data);
         
-        // Navigate back to User Access page with refresh flag
         navigate('/user-access', { 
           state: { refresh: true, message: isEditing ? 'Staff member updated successfully!' : 'Staff member added successfully!' }
         });
-        
-        // Show success message briefly before navigation
-        setSuccess(isEditing ? 'Staff member updated successfully!' : 'Staff member added successfully!');
-        
       } else {
         const errorData = await response.json().catch(() => ({}));
         setError(errorData.message || errorData.error?.message || `Failed to ${isEditing ? 'update' : 'create'} staff member`);
-        console.error('❌ API Error:', errorData);
+        showToastMessage(errorData.message || `Failed to ${isEditing ? 'update' : 'create'} staff member`, 'error');
       }
     } catch (error) {
       console.error('❌ Error saving staff:', error);
       setError(`An error occurred while ${isEditing ? 'updating' : 'creating'} the staff member`);
+      showToastMessage(`An error occurred while ${isEditing ? 'updating' : 'creating'} the staff member`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -430,27 +447,34 @@ const AddStaff = () => {
     }
     
     fetchUserInfo();
+    fetchAccessInfo();
     fetchPermissionsCatalog();
   }, [isAuthenticated]);
 
+  // Get role display info
+  const getRoleDisplay = (role) => {
+    const found = ROLE_OPTIONS.find(r => r.value === role);
+    return found || ROLE_OPTIONS[2];
+  };
+
   // Settings Dropdown Menu
   const SettingsMenu = () => (
-    <div className="absolute top-full right-0 mt-2 bg-black rounded-2xl w-80 shadow-2xl border border-gray-800 z-50 overflow-hidden">
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-5 py-4">
+    <div className="absolute top-full right-0 mt-2 bg-white rounded-2xl w-80 shadow-2xl border border-gray-100 z-50 overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-2xl font-bold text-white border-2 border-white/30 flex-shrink-0">
+          <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white border-2 border-white/30 flex-shrink-0">
             {userData?.user?.full_name?.charAt(0) || user?.name?.charAt(0) || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-base font-semibold text-white truncate">
               {userData?.user?.full_name || user?.name || 'User'}
             </h4>
-            <p className="text-sm text-gray-400 truncate">
+            <p className="text-sm text-white/80 truncate">
               {userData?.user?.email || user?.email || 'user@transev.com'}
             </p>
-            {userData?.role && (
-              <span className="inline-block mt-1 px-2 py-0.5 bg-white/10 rounded-full text-xs text-gray-300 border border-gray-600">
-                {userData.role}
+            {accessData?.role && (
+              <span className="inline-block mt-1 px-2 py-0.5 bg-white/20 rounded-full text-xs text-white border border-white/30">
+                {accessData.role}
               </span>
             )}
           </div>
@@ -458,14 +482,14 @@ const AddStaff = () => {
       </div>
       
       <div className="p-2">
-        <button onClick={() => { setShowSettingsMenu(false); navigate('/profile'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
-          <UserIcon size={16} className="text-gray-500" /> <span>Profile</span>
+        <button onClick={() => { setShowSettingsMenu(false); navigate('/profile'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
+          <User size={16} className="text-gray-400" /> <span>Profile</span>
         </button>
-        <button onClick={() => { setShowSettingsMenu(false); navigate('/organization'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
-          <Building size={16} className="text-gray-500" /> <span>Organization</span>
+        <button onClick={() => { setShowSettingsMenu(false); navigate('/organization'); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
+          <Building size={16} className="text-gray-400" /> <span>Organization</span>
         </button>
-        <div className="border-t border-gray-700 my-1"></div>
-        <button onClick={() => { setShowSettingsMenu(false); handleLogout(); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-red-900/30 text-sm font-medium text-red-400 hover:text-red-300 flex items-center gap-3 transition">
+        <div className="border-t border-gray-100 my-1"></div>
+        <button onClick={() => { setShowSettingsMenu(false); handleLogout(); }} className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-red-50 text-sm font-medium text-red-600 hover:text-red-700 flex items-center gap-3 transition">
           <LogOut size={16} className="text-red-500" /> <span>Sign Out</span>
         </button>
       </div>
@@ -473,12 +497,12 @@ const AddStaff = () => {
   );
 
   const AddMenu = () => (
-    <div className="absolute top-full right-0 mt-2 bg-black rounded-2xl w-64 shadow-2xl border border-gray-800 z-50">
+    <div className="absolute top-full right-0 mt-2 bg-white rounded-2xl w-64 shadow-2xl border border-gray-100 z-50">
       <div className="p-3">
-        <button onClick={() => { setShowAddMenu(false); navigate("/add-hub"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
-          <Plus size={18} className="text-gray-400" /> Add Hub
+        <button onClick={() => { setShowAddMenu(false); navigate("/add-hub"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
+          <Zap size={18} className="text-gray-400" /> Add Hub
         </button>
-        <button onClick={() => { setShowAddMenu(false); navigate("/add-charger"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-800 text-sm font-medium text-gray-300 hover:text-white flex items-center gap-3 transition">
+        <button onClick={() => { setShowAddMenu(false); navigate("/add-charger"); }} className="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-3 transition">
           <Zap size={18} className="text-gray-400" /> Add Charger
         </button>
       </div>
@@ -499,12 +523,6 @@ const AddStaff = () => {
   };
 
   const handleThemeToggle = () => setIsDarkMode(!isDarkMode);
-
-  // Get role display info
-  const getRoleDisplay = (role) => {
-    const found = ROLE_OPTIONS.find(r => r.value === role);
-    return found || ROLE_OPTIONS[2]; // Default to Viewer
-  };
 
   if (isRefreshing && loading) {
     return (
@@ -531,6 +549,14 @@ const AddStaff = () => {
       />
 
       <div className="flex-1 min-w-0">
+        {/* Toast */}
+        {showToast.visible && (
+          <div className={`fixed top-20 right-6 z-50 ${showToast.type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-fadeIn`}>
+            {showToast.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            <span>{showToast.message}</span>
+          </div>
+        )}
+
         <header className="bg-white border-b-2 border-gray-200 px-6 py-5 sticky top-0 z-30 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 text-sm text-gray-500">
@@ -649,11 +675,7 @@ const AddStaff = () => {
                               key={role.value}
                               type="button"
                               onClick={() => setFormData({ ...formData, role: role.value })}
-                              className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-200 ${
-                                isSelected 
-                                  ? 'border-blue-500 bg-blue-50 shadow-md shadow-blue-100/50' 
-                                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                              }`}
+                              className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all duration-200 ${isSelected ? 'border-blue-500 bg-blue-50 shadow-md shadow-blue-100/50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                             >
                               <div className={`p-1.5 rounded-full ${isSelected ? 'bg-blue-100' : 'bg-gray-100'}`}>
                                 {role.icon}
@@ -661,9 +683,8 @@ const AddStaff = () => {
                               <span className={`text-xs font-medium ${isSelected ? 'text-blue-700' : 'text-gray-600'}`}>
                                 {role.label}
                               </span>
-                              {isSelected && (
-                                <Check size={12} className="text-blue-600" />
-                              )}
+                              <span className="text-[10px] text-gray-400 text-center">{role.description}</span>
+                              {isSelected && <Check size={12} className="text-blue-600" />}
                             </button>
                           );
                         })}
@@ -739,9 +760,7 @@ const AddStaff = () => {
                               {perms.map((perm) => (
                                 <label
                                   key={perm.key}
-                                  className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition hover:bg-gray-50 ${
-                                    selectedPermissions.includes(perm.key) ? 'bg-blue-50' : ''
-                                  }`}
+                                  className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition hover:bg-gray-50 ${selectedPermissions.includes(perm.key) ? 'bg-blue-50' : ''}`}
                                 >
                                   <input
                                     type="checkbox"
@@ -805,18 +824,11 @@ const AddStaff = () => {
 
       <style>{`
         @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px) scale(0.98); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out forwards;
-        }
-        .animate-slideUp {
-          animation: slideUp 0.3s ease-out forwards;
+          animation: fadeIn 0.3s ease-out forwards;
         }
       `}</style>
     </div>

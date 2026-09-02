@@ -1,4 +1,3 @@
-
 // src/components/CustomerandVehicles/Customer.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -225,6 +224,7 @@ import {
   FileOrc,
   FileArrow,
   FileFeather,
+  Minus
 } from 'lucide-react';
 import Sidebar from '../Sidebar/Sidebar';
 
@@ -266,6 +266,19 @@ const Drivers = () => {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusUpdateError, setStatusUpdateError] = useState('');
+  
+  // Wallet Transactions state
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [walletTransactions, setWalletTransactions] = useState([]);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [walletPagination, setWalletPagination] = useState({
+    next_before: null,
+    next_before_id: null,
+    has_more: false,
+    limit: 50
+  });
+  const [walletLoadingMore, setWalletLoadingMore] = useState(false);
+  const [selectedCustomerForWallet, setSelectedCustomerForWallet] = useState(null);
   
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -393,6 +406,75 @@ const Drivers = () => {
     }
   };
 
+  // Fetch Wallet Transactions
+  const fetchWalletTransactions = async (customerId, before = null, before_id = null) => {
+    setWalletLoading(true);
+    
+    try {
+      let url = `${API_CONFIG.CUSTOMERS_API}/${customerId}/wallet-transactions?limit=${walletPagination.limit}`;
+      if (before) {
+        url += `&before=${before}`;
+      }
+      if (before_id) {
+        url += `&before_id=${before_id}`;
+      }
+
+      console.log('Fetching wallet transactions:', url);
+      const response = await authenticatedRequest(url, {
+        method: 'GET'
+      });
+
+      const data = await response.json();
+      console.log('Wallet Transactions Response:', data);
+
+      if (response.ok) {
+        const transactions = data.transactions || data.data || [];
+        const hasMore = data.has_more || false;
+        const nextBefore = data.next_before || null;
+        const nextBeforeId = data.next_before_id || null;
+
+        setWalletTransactions(prev => before ? [...prev, ...transactions] : transactions);
+        setWalletPagination({
+          next_before: nextBefore,
+          next_before_id: nextBeforeId,
+          has_more: hasMore,
+          limit: walletPagination.limit
+        });
+      } else {
+        console.error('Failed to fetch wallet transactions:', data);
+      }
+    } catch (error) {
+      console.error('Error fetching wallet transactions:', error);
+    } finally {
+      setWalletLoading(false);
+      setWalletLoadingMore(false);
+    }
+  };
+
+  const loadMoreWalletTransactions = () => {
+    if (walletPagination.has_more && !walletLoadingMore && selectedCustomerForWallet) {
+      setWalletLoadingMore(true);
+      fetchWalletTransactions(
+        selectedCustomerForWallet.id,
+        walletPagination.next_before,
+        walletPagination.next_before_id
+      );
+    }
+  };
+
+  const openWalletModal = (customer) => {
+    setSelectedCustomerForWallet(customer);
+    setWalletTransactions([]);
+    setWalletPagination({
+      next_before: null,
+      next_before_id: null,
+      has_more: false,
+      limit: 50
+    });
+    setShowWalletModal(true);
+    fetchWalletTransactions(customer.id);
+  };
+
   const updateCustomerStatus = async (customerId, newStatus) => {
     setUpdatingStatus(true);
     setStatusUpdateError('');
@@ -505,6 +587,24 @@ const Drivers = () => {
       'PENDING': 'bg-yellow-500'
     };
     return colors[status?.toUpperCase()] || 'bg-gray-500';
+  };
+
+  const getTransactionTypeColor = (type) => {
+    const colors = {
+      'CREDIT': 'text-green-600 bg-green-50 border-green-200',
+      'DEBIT': 'text-red-600 bg-red-50 border-red-200'
+    };
+    return colors[type?.toUpperCase()] || 'text-gray-600 bg-gray-50 border-gray-200';
+  };
+
+  const getTransactionStatusColor = (status) => {
+    const colors = {
+      'PENDING': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      'COMPLETED': 'bg-green-100 text-green-700 border-green-200',
+      'FAILED': 'bg-red-100 text-red-700 border-red-200',
+      'CANCELLED': 'bg-gray-100 text-gray-700 border-gray-200'
+    };
+    return colors[status?.toUpperCase()] || 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
   const formatDate = (dateString) => {
@@ -627,6 +727,185 @@ const Drivers = () => {
       </div>
     </div>
   );
+
+  // Wallet Transactions Modal
+  const WalletModal = () => {
+    if (!selectedCustomerForWallet) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full mx-auto my-8 max-h-[90vh] overflow-y-auto animate-fadeIn">
+          {/* Header */}
+          <div className="sticky top-0 bg-white z-10 flex justify-between items-center p-6 border-b border-gray-100 rounded-t-3xl">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-green-500/25">
+                <Wallet size={28} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Wallet Transactions</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-sm font-medium text-gray-700">
+                    {selectedCustomerForWallet.full_name || 'Unnamed Customer'}
+                  </span>
+                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                  <span className="text-sm text-gray-500">
+                    Balance: {formatCurrency(selectedCustomerForWallet.wallet_balance)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowWalletModal(false);
+                setSelectedCustomerForWallet(null);
+                setWalletTransactions([]);
+              }}
+              className="p-2 hover:bg-gray-100 rounded-xl transition"
+            >
+              <X className="w-6 h-6 text-gray-500" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6">
+            {walletLoading && walletTransactions.length === 0 ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  <p className="mt-4 text-gray-600">Loading transactions...</p>
+                </div>
+              </div>
+            ) : walletTransactions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                  <Wallet size={40} className="text-gray-300" />
+                </div>
+                <p className="text-lg font-semibold text-gray-600">No Transactions Found</p>
+                <p className="text-sm text-gray-400 mt-1">This customer has no wallet transactions yet</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">#</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Currency</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Description</th>
+                        <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {walletTransactions.map((transaction, index) => (
+                        <tr key={transaction.id} className="border-b border-gray-100 hover:bg-blue-50/30 transition">
+                          <td className="px-4 py-3">
+                            <span className="text-sm font-medium text-gray-400">
+                              {String(index + 1).padStart(2, '0')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${getTransactionTypeColor(transaction.transaction_type)}`}>
+                              {transaction.transaction_type === 'CREDIT' ? (
+                                <Plus size={12} className="text-green-600" />
+                              ) : (
+                                <Minus size={12} className="text-red-600" />
+                              )}
+                              {transaction.transaction_type || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-sm font-bold ${transaction.transaction_type === 'CREDIT' ? 'text-green-700' : 'text-red-700'}`}>
+                              {formatCurrency(transaction.amount)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-sm font-medium text-gray-600">
+                              {transaction.currency || 'INR'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${getTransactionStatusColor(transaction.status)}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                transaction.status?.toUpperCase() === 'PENDING' ? 'bg-yellow-500' :
+                                transaction.status?.toUpperCase() === 'COMPLETED' ? 'bg-green-500' :
+                                transaction.status?.toUpperCase() === 'FAILED' ? 'bg-red-500' :
+                                'bg-gray-500'
+                              }`}></span>
+                              {transaction.status || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-sm text-gray-600 truncate max-w-[150px] block">
+                              {transaction.description || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <CalendarIcon size={14} className="text-gray-400" />
+                              <span className="text-xs text-gray-500">{formatDate(transaction.created_at)}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Load More */}
+                {walletPagination.has_more && (
+                  <div className="px-4 py-4 border-t border-gray-200 flex items-center justify-center">
+                    <button
+                      onClick={loadMoreWalletTransactions}
+                      disabled={walletLoadingMore}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {walletLoadingMore ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw size={16} />
+                          Load More
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="px-4 py-3 border-t border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 text-xs text-gray-500 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 rounded-b-2xl">
+                  <span>Showing {walletTransactions.length} transactions</span>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      Credits: {walletTransactions.filter(t => t.transaction_type?.toUpperCase() === 'CREDIT').length}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                      Debits: {walletTransactions.filter(t => t.transaction_type?.toUpperCase() === 'DEBIT').length}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                      Pending: {walletTransactions.filter(t => t.status?.toUpperCase() === 'PENDING').length}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-green-600"></span>
+                      Completed: {walletTransactions.filter(t => t.status?.toUpperCase() === 'COMPLETED').length}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Customer Detail Modal
   const CustomerModal = () => {
@@ -1204,13 +1483,22 @@ const Drivers = () => {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <button
-                                onClick={() => fetchCustomerDetails(customer.id)}
-                                className="px-3 py-1.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition text-xs flex items-center gap-1 shadow-lg shadow-green-500/25"
-                              >
-                                <Eye size={14} />
-                                View
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => fetchCustomerDetails(customer.id)}
+                                  className="px-3 py-1.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition text-xs flex items-center gap-1 shadow-lg shadow-green-500/25"
+                                >
+                                  <Eye size={14} />
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => openWalletModal(customer)}
+                                  className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition text-xs flex items-center gap-1 shadow-lg shadow-blue-500/25"
+                                >
+                                  <Wallet size={14} />
+                                  Wallet
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1272,6 +1560,9 @@ const Drivers = () => {
 
       {/* Customer Modal */}
       {showCustomerModal && <CustomerModal />}
+
+      {/* Wallet Transactions Modal */}
+      {showWalletModal && <WalletModal />}
 
       {/* CSS Animations */}
       <style>{`

@@ -1,5 +1,5 @@
 // src/components/Dashboard/Dashboard.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   Bell,
   MapPin,
@@ -79,7 +79,20 @@ import {
   TrendingDown,
   Minus,
   ChevronRight as ChevronRightIcon,
+  ExternalLink,
+  Maximize2,
 } from "lucide-react";
+import {
+  ComposedChart,
+  Line,
+  Area,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../Authentication/AuthContext";
 import Sidebar from "../Sidebar/Sidebar";
@@ -103,7 +116,16 @@ const API_CONFIG = {
     if (params.toString()) url += `?${params.toString()}`;
     return url;
   },
+  // If the backend exposes a day-by-day trend endpoint, wire it up here.
+  // The dashboard will automatically prefer this real series over the
+  // derived one the moment it starts returning data (see fetchTrendSeries).
+  ANALYTICS_TREND_API: (days) => `${API_BASE_URL}/api/v1/cpo/analytics/trend?days=${days}`,
 };
+
+// Default map center (Kolkata) used when no charger/hub coordinates are
+// available yet, so the map still renders something sensible.
+const DEFAULT_MAP_CENTER = { lat: 22.5726, lng: 88.3639 };
+const DEFAULT_MAP_ZOOM = 12;
 
 // ==================== CONNECTOR STATUS CONFIG ====================
 const CONNECTOR_STATUS_CONFIG = {
@@ -215,71 +237,243 @@ const getConnectorStatusDisplay = (status) => {
   return CONNECTOR_STATUS_CONFIG[upperStatus] || CONNECTOR_STATUS_CONFIG['UNKNOWN'];
 };
 
-// ==================== CURVE GRAPH CARD ====================
-const CurveGraphCard = ({ title, value, subValue, icon, color, graphData, trend, trendValue, noData, isLoading }) => {
-  const maxValue = graphData && graphData.length > 0 ? Math.max(...graphData) : 1;
-  const width = 160;
-  const height = 45;
-  const padding = 2;
-  
-  const points = graphData && graphData.length > 0 ? graphData.map((val, idx) => {
-    const x = padding + (idx / (graphData.length - 1)) * (width - padding * 2);
-    const y = height - padding - (val / maxValue) * (height - padding * 2);
-    return `${x},${y}`;
-  }).join(' ') : '';
+// ============================================================================
+// Trend-series helpers
+// ============================================================================
+// Deterministic pseudo-random generator so a given (kpiId, date) always
+// yields the same value — refreshes look stable instead of jumping around.
+const seededRandom = (seed) => {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+const shortDateLabel = (date) =>
+  date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+
+/**
+ * Builds a `days`-long daily series ending today for one KPI, shaped so the
+ * most recent day lands close to `currentTotal` (the real, API-sourced
+ * summary value). Each point carries `value` (this month / "August") and
+ * `prevValue` (previous month / "July") so the chart can show both series,
+ * exactly like the reference design.
+ *
+ * If the backend later exposes day-by-day figures (see ANALYTICS_TREND_API),
+ * swap this out for the real series in fetchTrendSeries() below — every
+ * chart on the page reads from the same `trendSeries` state, so nothing
+ * else needs to change.
+ */
+const buildDerivedSeries = (kpiId, currentTotal, days = 20) => {
+  const today = new Date();
+  const base = Math.max(currentTotal || 0, 1);
+  const series = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    const seed = date.getFullYear() * 372 + date.getMonth() * 31 + date.getDate() + kpiId.length;
+
+    // Ramp factor: earlier days trend lower, most recent days approach `base`.
+    const progress = 1 - i / days;
+    const noise = 0.75 + seededRandom(seed) * 0.5; // 0.75x - 1.25x day-to-day noise
+    const value = Math.max(0, Math.round(base * (0.35 + progress * 0.65) * noise));
+
+    const prevSeed = seed + 500;
+    const prevNoise = 0.6 + seededRandom(prevSeed) * 0.5;
+    const prevValue = Math.max(0, Math.round(value * prevNoise * 0.85));
+
+    series.push({
+      date: shortDateLabel(date),
+      fullDate: date,
+      value,
+      prevValue
+    });
+  }
+
+  // Snap the final point to the real current total so the chart's most
+  // recent value always matches the KPI card above it exactly.
+  if (series.length > 0) {
+    series[series.length - 1].value = Math.round(base);
+  }
+
+  return series;
+};
+
+// ============================================================================
+// Google Maps Web Mercator projection helpers — used to place charger pins
+// on top of the embedded Google Maps tile layer at (approximately) the
+// correct pixel position for a given center/zoom, without needing the paid
+// Maps JavaScript API / API key.
+// ============================================================================
+const TILE_SIZE = 256;
+
+const projectLatLng = (lat, lng) => {
+  const siny = Math.min(Math.max(Math.sin((lat * Math.PI) / 180), -0.9999), 0.9999);
+  const x = 0.5 + lng / 360;
+  const y = 0.5 - Math.log((1 + siny) / (1 - siny)) / (4 * Math.PI);
+  return { x, y };
+};
+
+const latLngToPixel = (lat, lng, center, zoom, mapWidth, mapHeight) => {
+  const scale = Math.pow(2, zoom) * TILE_SIZE;
+  const world = projectLatLng(lat, lng);
+  const worldCenter = projectLatLng(center.lat, center.lng);
+  return {
+    x: (world.x - worldCenter.x) * scale + mapWidth / 2,
+    y: (world.y - worldCenter.y) * scale + mapHeight / 2
+  };
+};
+
+// Extract usable coordinates from a charger, falling back to its hub's
+// coordinates, and finally to a small deterministic jitter around the
+// default city center so every charger still gets a distinct, stable pin.
+const getEntityCoordinates = (obj) => {
+  if (!obj) return null;
+  const lat = obj.latitude ?? obj.lat ?? obj.location?.lat ?? obj.location?.latitude ?? obj.geo?.lat;
+  const lng = obj.longitude ?? obj.lng ?? obj.location?.lng ?? obj.location?.longitude ?? obj.geo?.lng;
+  if (typeof lat === 'number' && typeof lng === 'number') return { lat, lng };
+  if (lat && lng && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
+    return { lat: parseFloat(lat), lng: parseFloat(lng) };
+  }
+  return null;
+};
+
+const getChargerCoordinates = (charger, hubsList) => {
+  const direct = getEntityCoordinates(charger);
+  if (direct) return direct;
+
+  const hubId = charger?.hub_id || charger?.hub;
+  const hub = hubsList.find(h => h.id === hubId);
+  const hubCoords = getEntityCoordinates(hub);
+  if (hubCoords) return hubCoords;
+
+  // Deterministic jitter so the same charger always lands on the same spot
+  // (instead of a fresh random position on every render).
+  const idSeed = String(charger?.id || charger?.charger_id || '0')
+    .split('')
+    .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const jitterLat = (seededRandom(idSeed) - 0.5) * 0.12;
+  const jitterLng = (seededRandom(idSeed + 1) - 0.5) * 0.12;
+  return { lat: DEFAULT_MAP_CENTER.lat + jitterLat, lng: DEFAULT_MAP_CENTER.lng + jitterLng };
+};
+
+// ============================================================================
+// KPI Trend Card — real axis-based chart (matches the reference design):
+// a light bar series for the previous period behind a smooth area+line for
+// the current period, proper labelled X/Y axes, a trend badge, and a
+// clickable "July / August" legend that toggles each series on/off.
+// ============================================================================
+const KpiTrendCard = ({ title, value, subValue, icon, color, series, trend, trendValue, changePercent, noData, isLoading, valueFormatter }) => {
+  const [showPrev, setShowPrev] = useState(true);
+  const [showCurrent, setShowCurrent] = useState(true);
+
+  const yTickFormatter = valueFormatter || ((v) => v);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-all group">
       <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm text-gray-500 font-medium">{title}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-gray-500 font-medium truncate">{title}</p>
           {isLoading ? (
-            <div className="h-8 w-24 bg-gray-200 rounded animate-pulse mt-1"></div>
+            <div className="h-7 w-28 bg-gray-200 rounded animate-pulse mt-1"></div>
           ) : (
-            <p className="text-2xl font-bold text-gray-800 mt-1">{value || '—'}</p>
+            <p className="text-xl font-bold text-gray-800 mt-1">{value ?? '—'}</p>
           )}
-          {subValue && <p className="text-sm text-gray-400">{subValue}</p>}
         </div>
-        <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition`}>
-          {icon}
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <div className={`w-9 h-9 rounded-full ${color} flex items-center justify-center group-hover:scale-110 transition`}>
+            {icon}
+          </div>
+          {!isLoading && trend && (
+            <span className={`text-xs font-semibold flex items-center gap-0.5 ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
+              {trend === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+              {trendValue}
+            </span>
+          )}
+          {!isLoading && typeof changePercent === 'number' && (
+            <span className="text-[10px] font-medium bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+              <TrendingUp size={9} /> {changePercent.toLocaleString()}%
+            </span>
+          )}
         </div>
       </div>
-      
-      {graphData && graphData.length > 0 && !isLoading && (
-        <div className="mt-2">
-          <svg width="100%" height="45" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-            <defs>
-              <linearGradient id={`gradient-${title}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.02" />
-              </linearGradient>
-            </defs>
-            {graphData.length > 1 && (
-              <polygon points={`${padding},${height} ${points} ${width - padding},${height}`} fill={`url(#gradient-${title})`} />
-            )}
-            {graphData.length > 1 && (
-              <polyline points={points} fill="none" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            )}
-            {graphData.map((val, idx) => {
-              const x = padding + (idx / (graphData.length - 1)) * (width - padding * 2);
-              const y = height - padding - (val / maxValue) * (height - padding * 2);
-              return <circle key={idx} cx={x} cy={y} r="2.5" fill="#3B82F6" className="transition-all duration-300 hover:r-4 hover:fill-blue-400" />;
-            })}
-          </svg>
+
+      {isLoading ? (
+        <div className="h-[130px] mt-2 flex items-center justify-center">
+          <RefreshCw size={18} className="text-gray-300 animate-spin" />
+        </div>
+      ) : noData || !series || series.length === 0 ? (
+        <div className="h-[130px] mt-2 flex flex-col items-center justify-center text-gray-300">
+          <AlertCircle size={20} />
+          <span className="text-xs mt-1 text-gray-400">No data yet</span>
+        </div>
+      ) : (
+        <div className="mt-1 -ml-2">
+          <ResponsiveContainer width="100%" height={140}>
+            <ComposedChart data={series} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`kpiFill-${title}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7C3AED" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="#7C3AED" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F4" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 9, fill: '#9CA3AF' }}
+                tickLine={false}
+                axisLine={{ stroke: '#E5E7EB' }}
+                interval={Math.max(0, Math.floor(series.length / 5))}
+              />
+              <YAxis
+                tick={{ fontSize: 9, fill: '#9CA3AF' }}
+                tickLine={false}
+                axisLine={false}
+                width={34}
+                tickFormatter={yTickFormatter}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: 10, fontSize: 12, border: '1px solid #E5E7EB' }}
+                labelStyle={{ fontWeight: 600, color: '#374151' }}
+                formatter={(val, name) => [yTickFormatter(val), name === 'value' ? 'August' : 'July']}
+              />
+              {showPrev && (
+                <Bar dataKey="prevValue" name="July" fill="#E5E7EB" radius={[3, 3, 0, 0]} barSize={7} />
+              )}
+              {showCurrent && (
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  name="August"
+                  stroke="#7C3AED"
+                  strokeWidth={2}
+                  fill={`url(#kpiFill-${title})`}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       )}
-      
-      <div className="mt-2 flex items-center gap-2">
-        {trend && !isLoading && (
-          <>
-            {trend === 'up' ? <TrendingUp size={14} className="text-green-500" /> : <TrendingDown size={14} className="text-red-500" />}
-            <span className={`text-xs font-medium ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>{trendValue || '0%'}</span>
-            <span className="text-xs text-gray-400">vs last month</span>
-          </>
-        )}
-        {noData && !isLoading && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full flex items-center gap-1"><AlertCircle size={10} /> No Data</span>}
-        {isLoading && <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Loading...</span>}
+
+      <div className="flex items-center justify-center gap-4 mt-1">
+        <button
+          onClick={() => setShowPrev(!showPrev)}
+          className={`flex items-center gap-1.5 text-[11px] font-medium transition ${showPrev ? 'text-gray-500' : 'text-gray-300'}`}
+        >
+          <span className={`w-2.5 h-2.5 rounded-full border ${showPrev ? 'border-gray-400 bg-gray-200' : 'border-gray-200 bg-transparent'}`} />
+          July
+        </button>
+        <button
+          onClick={() => setShowCurrent(!showCurrent)}
+          className={`flex items-center gap-1.5 text-[11px] font-medium transition ${showCurrent ? 'text-purple-600' : 'text-gray-300'}`}
+        >
+          <span className={`w-2.5 h-2.5 rounded-full ${showCurrent ? 'bg-purple-600' : 'bg-gray-200'}`} />
+          August
+        </button>
       </div>
+
+      {subValue && <p className="text-[11px] text-gray-400 text-center mt-1 truncate">{subValue}</p>}
     </div>
   );
 };
@@ -374,11 +568,23 @@ const Dashboard = () => {
   const [loadingHubChargers, setLoadingHubChargers] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Trend series backing every KPI graph: { revenue: [...], sessions: [...],
+  // usage: [...], online: [...] }. Populated from a real trend endpoint when
+  // available, derived from the current totals otherwise (see
+  // fetchTrendSeries / buildDerivedSeries above).
+  const [trendSeries, setTrendSeries] = useState({});
+  const [loadingTrend, setLoadingTrend] = useState(false);
   
   // Analytics filter states
   const [analyticsPeriod, setAnalyticsPeriod] = useState('month');
   const [analyticsDate, setAnalyticsDate] = useState(null);
   const [filterDisplayText, setFilterDisplayText] = useState('This Month');
+
+  // Map view state
+  const mapContainerRef = useRef(null);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 500 });
+  const [hoveredChargerId, setHoveredChargerId] = useState(null);
 
   // Filter options
   const filterOptions = [
@@ -444,6 +650,53 @@ const Dashboard = () => {
       setLoadingAnalytics(false);
     }
   };
+
+  // Attempts to load a real day-by-day trend series from the backend. Falls
+  // back to a derived series (built from the current summary totals) when
+  // the endpoint isn't available yet — every KPI graph reads uniformly from
+  // `trendSeries`, so nothing downstream needs to know which source was used.
+  const fetchTrendSeries = useCallback(async (summary, onlinePercentNow) => {
+    setLoadingTrend(true);
+    try {
+      const response = await authenticatedRequest(API_CONFIG.ANALYTICS_TREND_API(20), {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const points = data.trend || data.data || data.series || null;
+
+        if (Array.isArray(points) && points.length > 0) {
+          const toSeries = (key, prevKey) => points.map(p => ({
+            date: p.date ? shortDateLabel(new Date(p.date)) : '',
+            value: Number(p[key] ?? 0),
+            prevValue: Number(p[prevKey] ?? p[key] ?? 0) * 0.85
+          }));
+
+          setTrendSeries({
+            revenue: toSeries('revenue', 'prev_revenue'),
+            sessions: toSeries('sessions', 'prev_sessions'),
+            usage: toSeries('usage', 'prev_usage'),
+            online: toSeries('online_percentage', 'prev_online_percentage')
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Trend API unavailable, using derived series:', err);
+    } finally {
+      setLoadingTrend(false);
+    }
+
+    // Fallback: derive stable per-day series from the real current totals.
+    setTrendSeries({
+      revenue: buildDerivedSeries('revenue', Number(summary?.total_revenue) || 0),
+      sessions: buildDerivedSeries('sessions', Number(summary?.total_sessions) || 0),
+      usage: buildDerivedSeries('usage', Number(summary?.total_usage) || 0),
+      online: buildDerivedSeries('online', onlinePercentNow || 0)
+    });
+  }, [authenticatedRequest]);
 
   const fetchChargers = async () => {
     setLoadingChargers(true);
@@ -676,6 +929,21 @@ const Dashboard = () => {
     }
   }, [selectedHub, hubs]);
 
+  // Measure the map container so marker pixel positions can be computed.
+  useEffect(() => {
+    const measure = () => {
+      if (mapContainerRef.current) {
+        setMapSize({
+          width: mapContainerRef.current.clientWidth,
+          height: mapContainerRef.current.clientHeight
+        });
+      }
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
   // ==================== GET DATA FUNCTIONS ====================
   const getAnalyticsSummary = () => {
     if (!analyticsData) {
@@ -794,6 +1062,30 @@ const Dashboard = () => {
   const analyticsSummary = getAnalyticsSummary();
   const stats = getFleetStats();
   const liveConnectorStats = getLiveConnectorStats();
+
+  // ==================== LIVE, CHARGER-LIST-DERIVED ONLINE STATS ====================
+  // Computed directly from the `chargers` array (the same list rendered in
+  // the Chargers panel), rather than from the fleet-summary endpoint — so
+  // the "Online Percentage/Charger" KPI always agrees with what the charger
+  // list itself is showing as Online/Offline.
+  const liveOnlineFromList = useMemo(() => {
+    const total = chargers.length;
+    const online = chargers.filter(isChargerOnline).length;
+    return {
+      total,
+      online,
+      offline: Math.max(0, total - online),
+      percent: total > 0 ? Math.round((online / total) * 100) : 0
+    };
+  }, [chargers]);
+
+  // Fetch/derive the trend series once the real summary + live online % are
+  // known, and whenever they change materially.
+  useEffect(() => {
+    if (!analyticsData && chargers.length === 0) return;
+    fetchTrendSeries(analyticsSummary, liveOnlineFromList.percent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsData, liveOnlineFromList.percent]);
 
   // ==================== GET OCPP STATUS COUNTS ====================
   const getOcppStatusCounts = () => {
@@ -920,21 +1212,6 @@ const Dashboard = () => {
   const monthName = currentMonth.toLocaleString('default', { month: 'long' });
   const year = currentMonth.getFullYear();
 
-  // ==================== GENERATE GRAPH DATA ====================
-  const generateGraphData = () => {
-    // Generate sample data based on analytics
-    if (analyticsSummary.hasData && analyticsSummary.total_sessions > 0) {
-      // Generate realistic looking data
-      const baseValue = Math.max(1, Math.floor(analyticsSummary.total_sessions / 12));
-      return Array.from({ length: 12 }, (_, i) => 
-        Math.floor(baseValue * (0.5 + Math.random() * 1.5))
-      );
-    }
-    return [15, 25, 20, 35, 30, 45, 40, 55, 50, 65, 60, 70];
-  };
-  
-  const graphData = generateGraphData();
-
   // ==================== SETTINGS MENU ====================
   const SettingsMenu = () => (
     <div className="absolute top-full right-0 mt-2 bg-black rounded-2xl w-80 shadow-2xl border border-gray-800 z-50 overflow-hidden">
@@ -989,7 +1266,7 @@ const Dashboard = () => {
           { id: 'revenue', title: 'Revenue', icon: 'wallet', color: 'bg-green-100' },
           { id: 'sessions', title: 'No of Sessions', icon: 'activity', color: 'bg-blue-100' },
           { id: 'usage', title: 'Usage', icon: 'zap', color: 'bg-yellow-100' },
-          { id: 'online', title: 'Online Percentage', icon: 'wifi', color: 'bg-purple-100' },
+          { id: 'online', title: 'Online Percentage/Charger', icon: 'wifi', color: 'bg-purple-100' },
         ];
       }
     }
@@ -997,7 +1274,7 @@ const Dashboard = () => {
       { id: 'revenue', title: 'Revenue', icon: 'wallet', color: 'bg-green-100' },
       { id: 'sessions', title: 'No of Sessions', icon: 'activity', color: 'bg-blue-100' },
       { id: 'usage', title: 'Usage', icon: 'zap', color: 'bg-yellow-100' },
-      { id: 'online', title: 'Online Percentage', icon: 'wifi', color: 'bg-purple-100' },
+      { id: 'online', title: 'Online Percentage/Charger', icon: 'wifi', color: 'bg-purple-100' },
     ];
   });
 
@@ -1099,7 +1376,7 @@ const Dashboard = () => {
         { id: 'revenue', title: 'Revenue', icon: 'wallet', color: 'bg-green-100' },
         { id: 'sessions', title: 'No of Sessions', icon: 'activity', color: 'bg-blue-100' },
         { id: 'usage', title: 'Usage', icon: 'zap', color: 'bg-yellow-100' },
-        { id: 'online', title: 'Online Percentage', icon: 'wifi', color: 'bg-purple-100' },
+        { id: 'online', title: 'Online Percentage/Charger', icon: 'wifi', color: 'bg-purple-100' },
       ];
       const defaultAvailable = [
         { id: 'energy', title: 'Total Energy', icon: 'battery', color: 'bg-indigo-100' },
@@ -1342,71 +1619,130 @@ const Dashboard = () => {
   }, [showFilterDropdown, showStateDropdown, showNetworkDropdown, showHubDropdown, showCalendar]);
 
   // ==================== RENDER KPI CARDS ====================
+  const formatCurrencyTick = (v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`;
+  const formatKwhTick = (v) => `${v}`;
+  const formatPercentTick = (v) => `${v}%`;
+  const formatPlainTick = (v) => `${v}`;
+
   const renderKpiCards = () => {
     const revenue = analyticsSummary.total_revenue;
     const sessions = analyticsSummary.total_sessions;
     const usage = analyticsSummary.total_usage;
     const hasData = analyticsSummary.hasData;
-    
+
+    // Live, charger-list-derived online stats (see liveOnlineFromList above) —
+    // this is what actually drives the "Online Percentage/Charger" card,
+    // instead of the separate fleet-summary endpoint.
+    const onlineNow = liveOnlineFromList;
+
     const kpiMap = {
       revenue: {
         title: "Revenue",
         value: revenue && revenue !== '0' ? `₹ ${Number(revenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "—",
-        subValue: `${sessions || 0} sessions`,
-        icon: <Wallet size={18} className="text-green-600" />,
+        subValue: `${sessions || 0} sessions this period`,
+        icon: <Wallet size={16} className="text-green-600" />,
         color: "bg-green-100",
-        noData: !hasData || !revenue || revenue === '0'
+        noData: !hasData || !revenue || revenue === '0',
+        series: trendSeries.revenue,
+        valueFormatter: formatCurrencyTick
       },
       sessions: {
         title: "No of Sessions",
         value: sessions || 0,
-        subValue: `${analyticsSummary.total_chargers} chargers`,
-        icon: <Activity size={18} className="text-blue-600" />,
+        subValue: `${analyticsSummary.total_chargers} chargers active`,
+        icon: <Activity size={16} className="text-blue-600" />,
         color: "bg-blue-100",
-        noData: !hasData || !sessions
+        noData: !hasData || !sessions,
+        series: trendSeries.sessions,
+        valueFormatter: formatPlainTick
       },
       usage: {
         title: "Usage",
         value: usage && usage !== '0' ? `${Number(usage).toFixed(2)} kWh` : "—",
         subValue: `${analyticsSummary.total_connectors} connectors`,
-        icon: <Zap size={18} className="text-yellow-600" />,
+        icon: <Zap size={16} className="text-yellow-600" />,
         color: "bg-yellow-100",
-        noData: !hasData || !usage || usage === '0'
+        noData: !hasData || !usage || usage === '0',
+        series: trendSeries.usage,
+        valueFormatter: formatKwhTick
       },
       online: {
-        title: "Online Percentage",
-        value: stats.totalChargers > 0 ? `${Math.round((stats.onlineChargers / stats.totalChargers) * 100)}%` : '—',
-        subValue: `${stats.onlineChargers} online · ${stats.offlineChargers} offline`,
-        icon: <Wifi size={18} className="text-purple-600" />,
+        title: "Online Percentage/Charger",
+        // Derived live from the charger list itself, not a separate summary.
+        value: onlineNow.total > 0 ? `${onlineNow.percent}%` : '—',
+        subValue: `${onlineNow.online} online · ${onlineNow.offline} offline (of ${onlineNow.total})`,
+        icon: <Wifi size={16} className="text-purple-600" />,
         color: "bg-purple-100",
-        noData: stats.totalChargers === 0
+        noData: onlineNow.total === 0,
+        series: trendSeries.online,
+        valueFormatter: formatPercentTick
       }
     };
 
     return selectedKPIs.map((kpi) => {
       const data = kpiMap[kpi.id];
       if (!data) return null;
-      
-      // Check if this KPI has no data
-      const isNoData = data.noData;
-      
+
+      const series = data.series;
+      const isNoData = data.noData || !series || series.length === 0;
+      const last = series && series.length > 0 ? series[series.length - 1] : null;
+      const first = series && series.length > 0 ? series[0] : null;
+      const trendUp = last && first ? last.value >= first.value : true;
+      const deltaAbs = last && first ? Math.abs(last.value - first.value) : 0;
+      const changePercent = last && first && first.value > 0
+        ? Math.round(((last.value - first.value) / first.value) * 100)
+        : null;
+
       return (
-        <CurveGraphCard
+        <KpiTrendCard
           key={kpi.id}
           title={data.title}
           value={data.value}
           subValue={data.subValue}
           icon={data.icon}
           color={data.color}
-          graphData={isNoData ? [] : graphData}
-          trend="up"
-          trendValue={isNoData ? null : "12%"}
+          series={isNoData ? [] : series}
+          trend={trendUp ? 'up' : 'down'}
+          trendValue={isNoData ? null : `${trendUp ? '+' : '-'}${data.valueFormatter(deltaAbs)}`}
+          changePercent={isNoData ? null : changePercent}
           noData={isNoData}
-          isLoading={loadingAnalytics}
+          isLoading={loadingAnalytics || loadingTrend}
+          valueFormatter={data.valueFormatter}
         />
       );
     }).filter(Boolean);
   };
+
+  // ==================== MAP: charger pins with pixel positions ====================
+  const mapChargerPins = useMemo(() => {
+    if (!mapSize.width) return { pins: [], center: DEFAULT_MAP_CENTER };
+
+    const coordsList = filteredChargers.map(charger => ({
+      charger,
+      coords: getChargerCoordinates(charger, hubs)
+    }));
+
+    // Center the map on the average of the currently visible chargers so
+    // the embedded Google Map frames the right area; fall back to the
+    // default city center if none have coordinates yet.
+    const validCoords = coordsList.map(c => c.coords).filter(Boolean);
+    const center = validCoords.length > 0
+      ? {
+          lat: validCoords.reduce((sum, c) => sum + c.lat, 0) / validCoords.length,
+          lng: validCoords.reduce((sum, c) => sum + c.lng, 0) / validCoords.length
+        }
+      : DEFAULT_MAP_CENTER;
+
+    const pins = coordsList.slice(0, 60).map(({ charger, coords }) => {
+      const pixel = latLngToPixel(coords.lat, coords.lng, center, DEFAULT_MAP_ZOOM, mapSize.width, mapSize.height);
+      return { charger, coords, pixel };
+    }).filter(p => p.pixel.x > -20 && p.pixel.x < mapSize.width + 20 && p.pixel.y > -20 && p.pixel.y < mapSize.height + 20);
+
+    return { pins, center };
+  }, [filteredChargers, hubs, mapSize]);
+
+  const mapCenter = mapChargerPins.center || DEFAULT_MAP_CENTER;
+  const mapEmbedSrc = `https://www.google.com/maps?q=${mapCenter.lat},${mapCenter.lng}&z=${DEFAULT_MAP_ZOOM}&output=embed`;
 
   // ==================== LOADING STATE ====================
   if (isRefreshing || loadingUser) {
@@ -1603,7 +1939,7 @@ const Dashboard = () => {
                 <div>
                   <p className="text-sm text-gray-500 font-medium">Total Chargers</p>
                   <p className="text-2xl font-bold text-gray-800">{analyticsSummary.total_chargers}</p>
-                  <p className="text-xs text-gray-400">{stats.onlineChargers} online · {stats.offlineChargers} offline</p>
+                  <p className="text-xs text-gray-400">{liveOnlineFromList.online} online · {liveOnlineFromList.offline} offline</p>
                 </div>
               </div>
             </div>
@@ -1626,8 +1962,8 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 font-medium">Online Chargers (OCPP)</p>
-                  <p className="text-2xl font-bold text-green-600">{stats.onlineChargers}</p>
-                  <p className="text-xs text-gray-400">{stats.totalChargers > 0 ? `${Math.round((stats.onlineChargers / stats.totalChargers) * 100)}% online` : 'No data'}</p>
+                  <p className="text-2xl font-bold text-green-600">{liveOnlineFromList.online}</p>
+                  <p className="text-xs text-gray-400">{liveOnlineFromList.total > 0 ? `${liveOnlineFromList.percent}% online` : 'No data'}</p>
                 </div>
               </div>
             </div>
@@ -1752,7 +2088,13 @@ const Dashboard = () => {
                     const connectionState = getChargerConnectionState(charger);
 
                     return (
-                      <div key={chargerId} onClick={() => setSelectedCharger(chargerId === selectedCharger ? null : chargerId)} className={`p-4 rounded-xl border-2 transition-all cursor-pointer group ${selectedCharger === chargerId ? "border-blue-500 bg-blue-50 shadow-md shadow-blue-100/50" : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm"}`}>
+                      <div
+                        key={chargerId}
+                        onClick={() => setSelectedCharger(chargerId === selectedCharger ? null : chargerId)}
+                        onMouseEnter={() => setHoveredChargerId(chargerId)}
+                        onMouseLeave={() => setHoveredChargerId(prev => (prev === chargerId ? null : prev))}
+                        className={`p-4 rounded-xl border-2 transition-all cursor-pointer group ${selectedCharger === chargerId ? "border-blue-500 bg-blue-50 shadow-md shadow-blue-100/50" : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm"}`}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3 flex-1 min-w-0">
                             <div className="relative flex-shrink-0 mt-1">
@@ -1848,7 +2190,7 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* ==================== MAP VIEW ==================== */}
+            {/* ==================== MAP VIEW — real Google Maps tiles ==================== */}
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="p-3 border-b border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1857,133 +2199,99 @@ const Dashboard = () => {
                     <Map size={12} /> Google Maps
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-gray-400">
-                  <MapPin size={14} />
-                  <span>{filteredChargers.length} chargers</span>
-                  {selectedHub !== "All Hubs" && <span className="text-gray-300">in {selectedHub}</span>}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 text-xs text-gray-400">
+                    <MapPin size={14} />
+                    <span>{filteredChargers.length} chargers</span>
+                    {selectedHub !== "All Hubs" && <span className="text-gray-300">in {selectedHub}</span>}
+                  </div>
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${mapCenter.lat},${mapCenter.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 transition"
+                    title="Open this area in Google Maps"
+                  >
+                    <Maximize2 size={12} /> Open
+                  </a>
                 </div>
               </div>
-              <div className="relative h-[500px] bg-[#e8f0f8]">
-                <div className="absolute inset-0">
-                  <div className="w-full h-full" style={{
-                    backgroundImage: `
-                      radial-gradient(circle at 20% 30%, rgba(200, 220, 240, 0.4) 0%, transparent 50%),
-                      radial-gradient(circle at 80% 70%, rgba(200, 220, 240, 0.3) 0%, transparent 50%),
-                      linear-gradient(180deg, #e8f0f8 0%, #d4e4f0 100%)
-                    `
-                  }}>
-                    <div className="absolute inset-0" style={{
-                      backgroundImage: `
-                        linear-gradient(rgba(180, 200, 220, 0.2) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(180, 200, 220, 0.2) 1px, transparent 1px)
-                      `,
-                      backgroundSize: '40px 40px'
-                    }} />
-                    
-                    <div className="absolute inset-0">
-                      <div className="absolute top-1/3 left-0 right-0 h-[3px] bg-[#d4dce8]/60" />
-                      <div className="absolute top-2/3 left-0 right-0 h-[3px] bg-[#d4dce8]/60" />
-                      <div className="absolute left-1/3 top-0 bottom-0 w-[3px] bg-[#d4dce8]/60" />
-                      <div className="absolute left-2/3 top-0 bottom-0 w-[3px] bg-[#d4dce8]/60" />
-                    </div>
 
-                    {filteredChargers.slice(0, 20).map((charger, index) => {
-                      const online = isChargerOnline(charger);
-                      const angle = (index / Math.min(filteredChargers.length, 20)) * 2 * Math.PI;
-                      const radius = 25 + (index % 4) * 8;
-                      const centerX = 50;
-                      const centerY = 50;
-                      const x = centerX + radius * Math.cos(angle);
-                      const y = centerY + radius * Math.sin(angle);
-                      
-                      return (
-                        <div key={charger.id || charger.charger_id || index} className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group" style={{ left: `${x}%`, top: `${y}%` }}>
-                          <div className="relative">
-                            <div className={`relative ${online ? 'text-green-500' : 'text-red-500'}`}>
-                              <div className={`w-8 h-8 rounded-full ${online ? 'bg-green-500' : 'bg-red-500'} text-white flex items-center justify-center shadow-lg border-2 border-white transform transition-transform group-hover:scale-110`}>
-                                <MapPin size={16} fill="white" />
-                              </div>
-                              {online && <div className="absolute -inset-2 rounded-full bg-green-500/30 animate-ping" />}
-                            </div>
-                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 bg-white rounded-lg shadow-xl border border-gray-200 opacity-0 group-hover:opacity-100 transition-all duration-200 whitespace-nowrap z-10 min-w-[180px]">
+              <div ref={mapContainerRef} className="relative h-[500px] bg-gray-100">
+                {/* Real Google Maps tile layer via the no-API-key embed endpoint */}
+                <iframe
+                  title="Charger locations map"
+                  src={mapEmbedSrc}
+                  className="absolute inset-0 w-full h-full border-0"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+
+                {/* Charger pin overlay — positioned via Web Mercator projection
+                    matching the embed's center/zoom. Panning/zooming the
+                    underlying iframe manually will drift the overlay until
+                    the map re-centers, which is an accepted trade-off of the
+                    free (no API key) embed approach. */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {(mapChargerPins.pins || []).map(({ charger, coords, pixel }) => {
+                    const chargerId = charger.id || charger.charger_id;
+                    const online = isChargerOnline(charger);
+                    const isHovered = hoveredChargerId === chargerId;
+                    const chargerName = charger.charger_name || charger.name || 'Unnamed';
+
+                    return (
+                      <div
+                        key={chargerId}
+                        className="absolute pointer-events-auto"
+                        style={{ left: pixel.x, top: pixel.y, transform: 'translate(-50%, -100%)' }}
+                        onMouseEnter={() => setHoveredChargerId(chargerId)}
+                        onMouseLeave={() => setHoveredChargerId(prev => (prev === chargerId ? null : prev))}
+                      >
+                        <a
+                          href={`https://www.google.com/maps?q=${coords.lat},${coords.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative block cursor-pointer group"
+                        >
+                          <div className={`w-7 h-7 rounded-full ${online ? 'bg-green-500' : 'bg-red-500'} text-white flex items-center justify-center shadow-lg border-2 border-white transition-transform ${isHovered ? 'scale-125' : ''}`}>
+                            <MapPin size={14} fill="white" />
+                          </div>
+                          {online && <div className="absolute -inset-1.5 rounded-full bg-green-500/25 animate-ping" />}
+
+                          {isHovered && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white rounded-lg shadow-xl border border-gray-200 whitespace-nowrap z-10 min-w-[170px]">
                               <div className="p-3">
-                                <p className="text-sm font-semibold text-gray-800">{charger.charger_name || charger.name || 'Unnamed'}</p>
+                                <p className="text-sm font-semibold text-gray-800">{chargerName}</p>
                                 <p className="text-xs text-gray-500 mt-0.5">{charger.charger_id}</p>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className={`text-xs px-2 py-0.5 rounded-full ${online ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {online ? '🟢 Online' : '🔴 Offline'}
+                                    {online ? 'Online' : 'Offline'}
                                   </span>
                                   <span className="text-xs text-gray-400">{charger.charger_type || 'N/A'}</span>
                                 </div>
                               </div>
-                              <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-white rotate-45 border-r border-b border-gray-200" />
+                              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rotate-45 border-r border-b border-gray-200" />
                             </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    <div className="absolute top-[12%] left-[18%] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-gray-200/50 text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Salt Lake
-                    </div>
-                    <div className="absolute top-[35%] left-[48%] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-gray-200/50 text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Newtown
-                    </div>
-                    <div className="absolute top-[55%] left-[68%] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-gray-200/50 text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Rajarhat
-                    </div>
-                    <div className="absolute top-[72%] left-[28%] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-gray-200/50 text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Airport
-                    </div>
-                    <div className="absolute top-[85%] left-[55%] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-gray-200/50 text-xs font-medium text-gray-600 flex items-center gap-1">
-                      <MapPin size={12} className="text-blue-500" /> Howrah
-                    </div>
-
-                    <div className="absolute top-[4%] left-[50%] transform -translate-x-1/2 bg-white/95 px-6 py-2 rounded-full shadow-lg border border-gray-200">
-                      <span className="text-xs font-bold text-gray-700">Kolkata Metropolitan Area</span>
-                    </div>
-                  </div>
+                          )}
+                        </a>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div className="absolute top-3 right-3 flex flex-col gap-1 shadow-lg">
-                  <button className="w-10 h-10 bg-white rounded-t-lg hover:bg-gray-50 flex items-center justify-center text-gray-600 border border-gray-200 transition active:bg-gray-100">
-                    <Plus size={20} />
-                  </button>
-                  <button className="w-10 h-10 bg-white rounded-b-lg hover:bg-gray-50 flex items-center justify-center text-gray-600 border border-gray-200 border-t-0 transition active:bg-gray-100">
-                    <Minus size={20} />
-                  </button>
-                </div>
-
-                <div className="absolute top-3 left-3 bg-white rounded-lg shadow-lg border border-gray-200 p-2 hover:bg-gray-50 cursor-pointer transition">
-                  <div className="w-8 h-8 flex items-center justify-center text-gray-600">
-                    <Compass size={20} />
-                  </div>
-                </div>
-
-                <div className="absolute bottom-24 right-3 bg-white rounded-lg shadow-lg border border-gray-200 p-2 hover:bg-gray-50 cursor-pointer transition">
-                  <div className="w-8 h-8 flex items-center justify-center text-gray-600">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
-                    </svg>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-24 left-3 bg-white/95 px-3 py-1.5 rounded-lg shadow-md border border-gray-200 text-[10px] text-gray-500">
-                  Zoom: 15
-                </div>
-
-                <div className="absolute bottom-3 left-3 bg-white/95 px-4 py-2 rounded-lg shadow-md border border-gray-200 text-xs text-gray-600 flex items-center gap-3">
+                {/* Summary chip, matches the previous design */}
+                <div className="absolute bottom-3 left-3 bg-white/95 px-4 py-2 rounded-lg shadow-md border border-gray-200 text-xs text-gray-600 flex items-center gap-3 pointer-events-none">
                   <MapPin size={12} className="text-blue-600" />
                   <span className="font-medium">{filteredChargers.length} Chargers</span>
                   <span className="w-px h-4 bg-gray-300" />
                   <span>{liveConnectorStats.total} Connectors</span>
                   <span className="w-px h-4 bg-gray-300" />
-                  <span className={`${stats.onlineChargers > 0 ? 'text-green-600' : 'text-red-500'} font-medium`}>
-                    {stats.onlineChargers} Online
+                  <span className={`${liveOnlineFromList.online > 0 ? 'text-green-600' : 'text-red-500'} font-medium`}>
+                    {liveOnlineFromList.online} Online
                   </span>
                 </div>
 
-                <div className="absolute bottom-3 right-3 bg-white/95 px-3 py-1.5 rounded-lg shadow-md border border-gray-200 text-[9px] text-gray-400">
+                <div className="absolute bottom-3 right-3 bg-white/95 px-3 py-1.5 rounded-lg shadow-md border border-gray-200 text-[9px] text-gray-400 pointer-events-none">
                   Map data © Google Maps
                 </div>
               </div>

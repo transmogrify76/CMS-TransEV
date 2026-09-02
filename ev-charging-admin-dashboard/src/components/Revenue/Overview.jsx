@@ -232,7 +232,28 @@ const RevenueManagement = () => {
   const [loadingHubs, setLoadingHubs] = useState(false);
   const [error, setError] = useState('');
   
-  // Date filter state
+  // Analytics state
+  const [analyticsData, setAnalyticsData] = useState({
+    totalRevenue: 0,
+    totalSessions: 0,
+    totalUsage: 0,
+    onlinePercentage: 0,
+    avgSessionDuration: 0,
+    totalCustomers: 0,
+    period: 'all',
+    fromDate: null,
+    toDate: null
+  });
+  const [analyticsError, setAnalyticsError] = useState('');
+  
+  // Date filter state - for analytics
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [selectedPeriod, setSelectedPeriod] = useState('all');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Date filter for transactions
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(1);
@@ -240,13 +261,6 @@ const RevenueManagement = () => {
   });
   const [endDate, setEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
-  });
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [analyticsData, setAnalyticsData] = useState({
-    totalRevenue: 0,
-    totalSessions: 0,
-    totalUsage: 0,
-    onlinePercentage: 0
   });
   
   // Pagination state
@@ -275,6 +289,15 @@ const RevenueManagement = () => {
     { id: 'settings', label: 'Settings', icon: Settings, path: '/revenue/settings' }
   ];
 
+  // Period options
+  const periodOptions = [
+    { value: 'all', label: 'All Time' },
+    { value: 'day', label: 'Day' },
+    { value: 'week', label: 'Week' },
+    { value: 'month', label: 'Month' },
+    { value: 'year', label: 'Year' }
+  ];
+
   // Fetch user info
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -289,10 +312,16 @@ const RevenueManagement = () => {
     fetchHubs();
   }, []);
 
-  // Re-fetch when date range changes
+  // Re-fetch when date/period changes for analytics
+  useEffect(() => {
+    if (selectedDate || selectedPeriod) {
+      fetchAnalytics();
+    }
+  }, [selectedDate, selectedPeriod]);
+
+  // Re-fetch transactions when date range changes
   useEffect(() => {
     if (startDate && endDate) {
-      fetchAnalytics();
       fetchTransactions();
       fetchWalletTransactions();
     }
@@ -347,15 +376,30 @@ const RevenueManagement = () => {
     }
   }, []);
 
-  // Fetch analytics data
+  // Fetch analytics data using the analytics API
   const fetchAnalytics = useCallback(async () => {
     setLoadingAnalytics(true);
+    setAnalyticsError('');
+    
     try {
       let url = API_CONFIG.ANALYTICS_API;
-      if (startDate && endDate) {
-        url += `?start_date=${startDate}&end_date=${endDate}`;
+      
+      // Build query parameters
+      const params = new URLSearchParams();
+      
+      if (selectedPeriod && selectedPeriod !== 'all') {
+        params.append('period', selectedPeriod);
+      }
+      
+      if (selectedDate) {
+        params.append('date', selectedDate);
+      }
+      
+      if (params.toString()) {
+        url += `?${params.toString()}`;
       }
 
+      console.log('Fetching analytics from:', url);
       const response = await fetchWithTokenRefresh(url, {
         method: 'GET'
       });
@@ -363,28 +407,55 @@ const RevenueManagement = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('Analytics fetched:', data);
+        
+        // Handle different response structures
         const analytics = data.data || data || {};
+        
         setAnalyticsData({
-          totalRevenue: analytics.total_revenue || analytics.revenue || 0,
-          totalSessions: analytics.total_sessions || analytics.sessions || 0,
-          totalUsage: analytics.total_usage || analytics.usage || 0,
-          onlinePercentage: analytics.online_percentage || analytics.percentage || 0
+          totalRevenue: analytics.total_revenue || analytics.revenue || analytics.totalRevenue || 0,
+          totalSessions: analytics.total_sessions || analytics.sessions || analytics.totalSessions || 0,
+          totalUsage: analytics.total_usage || analytics.usage || analytics.totalUsage || 0,
+          onlinePercentage: analytics.online_percentage || analytics.percentage || analytics.onlinePercentage || 0,
+          avgSessionDuration: analytics.avg_session_duration || analytics.avgDuration || analytics.avgSessionDuration || 0,
+          totalCustomers: analytics.total_customers || analytics.customers || analytics.totalCustomers || 0,
+          period: selectedPeriod,
+          fromDate: analytics.from_date || analytics.fromDate || null,
+          toDate: analytics.to_date || analytics.toDate || null
         });
+        setAnalyticsError('');
       } else {
-        console.log('Failed to fetch analytics:', response.status);
+        const errorData = await response.json();
+        setAnalyticsError(errorData.message || errorData.error?.message || 'Failed to fetch analytics data');
         setAnalyticsData({
           totalRevenue: 0,
           totalSessions: 0,
           totalUsage: 0,
-          onlinePercentage: 0
+          onlinePercentage: 0,
+          avgSessionDuration: 0,
+          totalCustomers: 0,
+          period: selectedPeriod,
+          fromDate: null,
+          toDate: null
         });
       }
     } catch (error) {
       console.error('Error fetching analytics:', error);
+      setAnalyticsError(error.message || 'An error occurred while fetching analytics');
+      setAnalyticsData({
+        totalRevenue: 0,
+        totalSessions: 0,
+        totalUsage: 0,
+        onlinePercentage: 0,
+        avgSessionDuration: 0,
+        totalCustomers: 0,
+        period: selectedPeriod,
+        fromDate: null,
+        toDate: null
+      });
     } finally {
       setLoadingAnalytics(false);
     }
-  }, [startDate, endDate]);
+  }, [selectedDate, selectedPeriod]);
 
   const fetchTransactions = useCallback(async (before = null, before_id = null) => {
     setLoadingTransactions(true);
@@ -559,6 +630,17 @@ const RevenueManagement = () => {
     return `₹ ${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const getPeriodLabel = (period) => {
+    const options = {
+      'all': 'All Time',
+      'day': 'Today',
+      'week': 'This Week',
+      'month': 'This Month',
+      'year': 'This Year'
+    };
+    return options[period] || period;
+  };
+
   const getStatusColor = (status) => {
     const colors = {
       'SUCCESS': 'bg-green-100 text-green-800 border-green-200',
@@ -684,228 +766,222 @@ const RevenueManagement = () => {
     </div>
   );
 
-  // Charger Transaction Table Component - Full Table with all API fields
+  // Charger Transaction Table Component
   const ChargerTransactionTable = ({ data }) => {
+    if (loadingTransactions) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
+        </div>
+      );
+    }
+
+    if (data.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <Receipt className="w-10 h-10 text-gray-300" />
+          </div>
+          <p className="text-lg font-semibold text-gray-600">No Data Found</p>
+          <p className="text-sm text-gray-400 mt-1">No charger transactions available for the selected filters</p>
+        </div>
+      );
+    }
+
     return (
       <div className="overflow-x-auto">
-        {loadingTransactions ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
-          </div>
-        ) : (
-          <table className="w-full min-w-[1400px]">
-            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0">
-              <tr>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8">SI</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TRANSACTION ID</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">PAYMENT STATUS</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">BILLED AMOUNT</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CHARGER ID</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">DURATION</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">HUB</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TARIFF</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">USAGE (kWh)</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">OWNER</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">HOST DETAILS</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CUSTOMER DETAILS</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TIMESTAMP</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">REASON</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {data.length === 0 ? (
-                <tr>
-                  <td colSpan="14" className="px-3 py-12 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                        <Receipt className="w-8 h-8 text-gray-300" />
-                      </div>
-                      <p className="text-gray-500 font-medium text-lg">No Data Found</p>
-                      <p className="text-sm text-gray-400 mt-1">No charger transactions available for the selected filters</p>
-                    </div>
+        <table className="w-full min-w-[1400px]">
+          <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0">
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8">SI</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TRANSACTION ID</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">PAYMENT STATUS</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">BILLED AMOUNT</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CHARGER ID</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">DURATION</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">HUB</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TARIFF</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">USAGE (kWh)</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">OWNER</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">HOST DETAILS</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CUSTOMER DETAILS</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TIMESTAMP</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">REASON</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {data.map((transaction, index) => {
+              const transactionId = transaction.transaction_id || transaction.id || `TX-${index}`;
+              
+              return (
+                <tr key={transactionId} className="hover:bg-gray-50 transition">
+                  <td className="px-3 py-3 text-sm text-gray-500">
+                    <span>{index + 1}</span>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[120px] truncate">
+                    {transactionId}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${
+                      transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
+                      transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
+                      transaction.payment_status?.toUpperCase() === 'PAID'
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                        : transaction.payment_status?.toUpperCase() === 'PENDING'
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : transaction.payment_status?.toUpperCase() === 'FAILED'
+                        ? 'bg-red-100 text-red-700 border-red-200'
+                        : transaction.payment_status?.toUpperCase() === 'REFUNDED'
+                        ? 'bg-blue-100 text-blue-700 border-blue-200'
+                        : 'bg-gray-100 text-gray-700 border-gray-200'
+                    }`}>
+                      {transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
+                       transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
+                       transaction.payment_status?.toUpperCase() === 'PAID' ? (
+                        <CheckCircle className="w-3 h-3" />
+                      ) : transaction.payment_status?.toUpperCase() === 'PENDING' ? (
+                        <Clock className="w-3 h-3" />
+                      ) : transaction.payment_status?.toUpperCase() === 'FAILED' ? (
+                        <AlertCircle className="w-3 h-3" />
+                      ) : transaction.payment_status?.toUpperCase() === 'REFUNDED' ? (
+                        <RefreshCw className="w-3 h-3" />
+                      ) : (
+                        <Circle className="w-3 h-3" />
+                      )}
+                      {transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
+                       transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
+                       transaction.payment_status?.toUpperCase() === 'PAID' ? 'Success' 
+                       : transaction.payment_status || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                    {formatCurrency(transaction.billed_amount || 0)}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[100px] truncate">
+                    {transaction.charger_id || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600">
+                    {transaction.duration || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
+                    {transaction.hub || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600">
+                    {transaction.tariff || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600">
+                    {transaction.usage_kwh || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[100px] truncate">
+                    {transaction.owner || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
+                    {transaction.host_details?.name || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
+                    {transaction.customer_details?.name || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-500 max-w-[150px] truncate">
+                    {formatDate(transaction.timestamp)}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-500 max-w-[120px] truncate">
+                    {transaction.reason || '-'}
                   </td>
                 </tr>
-              ) : (
-                data.map((transaction, index) => {
-                  const transactionId = transaction.transaction_id || transaction.id || `TX-${index}`;
-                  
-                  return (
-                    <tr key={transactionId} className="hover:bg-gray-50 transition">
-                      <td className="px-3 py-3 text-sm text-gray-500">
-                        <span>{index + 1}</span>
-                      </td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[120px] truncate">
-                        {transactionId}
-                      </td>
-                      {/* <td className="px-3 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${getStatusColor(transaction.payment_status)}`}>
-                          {getStatusIcon(transaction.payment_status)}
-                          {transaction.payment_status || 'N/A'}
-                        </span>
-                      </td> */}
-                      <td className="px-3 py-3">
-  <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${
-    transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
-    transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
-    transaction.payment_status?.toUpperCase() === 'PAID'
-      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-      : transaction.payment_status?.toUpperCase() === 'PENDING'
-      ? 'bg-amber-100 text-amber-700 border-amber-200'
-      : transaction.payment_status?.toUpperCase() === 'FAILED'
-      ? 'bg-red-100 text-red-700 border-red-200'
-      : transaction.payment_status?.toUpperCase() === 'REFUNDED'
-      ? 'bg-blue-100 text-blue-700 border-blue-200'
-      : 'bg-gray-100 text-gray-700 border-gray-200'
-  }`}>
-    {transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
-     transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
-     transaction.payment_status?.toUpperCase() === 'PAID' ? (
-      <CheckCircle className="w-3 h-3" />
-    ) : transaction.payment_status?.toUpperCase() === 'PENDING' ? (
-      <Clock className="w-3 h-3" />
-    ) : transaction.payment_status?.toUpperCase() === 'FAILED' ? (
-      <AlertCircle className="w-3 h-3" />
-    ) : transaction.payment_status?.toUpperCase() === 'REFUNDED' ? (
-      <RefreshCw className="w-3 h-3" />
-    ) : (
-      <Circle className="w-3 h-3" />
-    )}
-    {transaction.payment_status?.toUpperCase() === 'COMPLETED' || 
-     transaction.payment_status?.toUpperCase() === 'SUCCESS' || 
-     transaction.payment_status?.toUpperCase() === 'PAID' ? 'Success' 
-     : transaction.payment_status || 'N/A'}
-  </span>
-</td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900">
-                        {formatCurrency(transaction.billed_amount || 0)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[100px] truncate">
-                        {transaction.charger_id || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600">
-                        {transaction.duration || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
-                        {transaction.hub || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600">
-                        {transaction.tariff || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600">
-                        {transaction.usage_kwh || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[100px] truncate">
-                        {transaction.owner || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
-                        {transaction.host_details?.name || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
-                        {transaction.customer_details?.name || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 max-w-[150px] truncate">
-                        {formatDate(transaction.timestamp)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 max-w-[120px] truncate">
-                        {transaction.reason || '-'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   };
 
-  // Wallet Transaction Table Component - Based on wallet transactions API response
+  // Wallet Transaction Table Component
   const WalletTransactionTable = ({ data }) => {
+    if (loadingWallet) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
+        </div>
+      );
+    }
+
+    if (data.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <Wallet className="w-10 h-10 text-gray-300" />
+          </div>
+          <p className="text-lg font-semibold text-gray-600">No Data Found</p>
+          <p className="text-sm text-gray-400 mt-1">No wallet transactions available for the selected date range</p>
+        </div>
+      );
+    }
+
     return (
       <div className="overflow-x-auto">
-        {loadingWallet ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-green-600 animate-spin" />
-          </div>
-        ) : (
-          <table className="w-full min-w-[900px]">
-            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0">
-              <tr>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8">SI</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TRANSACTION ID</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CUSTOMER</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">AMOUNT</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CURRENCY</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TYPE</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">STATUS</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">DESCRIPTION</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">SESSION ID</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TIMESTAMP</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {data.length === 0 ? (
-                <tr>
-                  <td colSpan="10" className="px-3 py-12 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                        <Wallet className="w-8 h-8 text-gray-300" />
-                      </div>
-                      <p className="text-gray-500 font-medium text-lg">No Data Found</p>
-                      <p className="text-sm text-gray-400 mt-1">No wallet transactions available for the selected date range</p>
-                    </div>
+        <table className="w-full min-w-[900px]">
+          <thead className="bg-gradient-to-r from-gray-50 to-gray-100 sticky top-0">
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8">SI</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TRANSACTION ID</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CUSTOMER</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">AMOUNT</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">CURRENCY</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TYPE</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">STATUS</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">DESCRIPTION</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">SESSION ID</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">TIMESTAMP</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {data.map((transaction, index) => {
+              const transactionId = transaction.id || transaction.transaction_id || `WTX-${index}`;
+              
+              return (
+                <tr key={transactionId} className="hover:bg-gray-50 transition">
+                  <td className="px-3 py-3 text-sm text-gray-500">
+                    <span>{index + 1}</span>
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[120px] truncate">
+                    {transactionId}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
+                    {transaction.customer_name || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-gray-900">
+                    {formatCurrency(transaction.amount || 0)}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600">
+                    {transaction.currency || 'INR'}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${transaction.transaction_type === 'CREDIT' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                      {transaction.transaction_type === 'CREDIT' ? <CheckCircle className="w-3 h-3 text-green-600" /> : <AlertCircle className="w-3 h-3 text-orange-600" />}
+                      {transaction.transaction_type || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${getStatusColor(transaction.status)}`}>
+                      {getStatusIcon(transaction.status)}
+                      {transaction.status || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[150px] truncate">
+                    {transaction.description || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
+                    {transaction.session_id || '-'}
+                  </td>
+                  <td className="px-3 py-3 text-sm text-gray-500 max-w-[150px] truncate">
+                    {formatDate(transaction.created_at)}
                   </td>
                 </tr>
-              ) : (
-                data.map((transaction, index) => {
-                  const transactionId = transaction.id || transaction.transaction_id || `WTX-${index}`;
-                  
-                  return (
-                    <tr key={transactionId} className="hover:bg-gray-50 transition">
-                      <td className="px-3 py-3 text-sm text-gray-500">
-                        <span>{index + 1}</span>
-                      </td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[120px] truncate">
-                        {transactionId}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
-                        {transaction.customer_name || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900">
-                        {formatCurrency(transaction.amount || 0)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600">
-                        {transaction.currency || 'INR'}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${transaction.transaction_type === 'CREDIT' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
-                          {transaction.transaction_type === 'CREDIT' ? <CheckCircle className="w-3 h-3 text-green-600" /> : <AlertCircle className="w-3 h-3 text-orange-600" />}
-                          {transaction.transaction_type || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium border flex items-center gap-1 w-fit ${getStatusColor(transaction.status)}`}>
-                          {getStatusIcon(transaction.status)}
-                          {transaction.status || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[150px] truncate">
-                        {transaction.description || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-600 max-w-[120px] truncate">
-                        {transaction.session_id || '-'}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 max-w-[150px] truncate">
-                        {formatDate(transaction.created_at)}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   };
@@ -1010,57 +1086,83 @@ const RevenueManagement = () => {
 
         {/* Overview Content */}
         <div className="p-6">
-          {/* Revenue Card - Simple and Clean */}
-          <div className="bg-gradient-to-r from-green-600 to-emerald-700 rounded-2xl p-6 mb-6 shadow-lg shadow-green-100 flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Wallet className="w-5 h-5 text-white/80" />
-                <p className="text-white/80 text-sm font-medium">Total Revenue</p>
-              </div>
-              <h2 className="text-4xl font-bold text-white">{formatCurrency(analyticsData.totalRevenue)}</h2>
-              <div className="flex items-center gap-3 mt-2">
-                <p className="text-green-100 text-sm">
-                  {startDate && endDate ? (
-                    <>
-                      {formatDateDisplay(startDate)} - {formatDateDisplay(endDate)}
-                    </>
-                  ) : (
-                    'All time'
-                  )}
-                </p>
-                <button
-                  onClick={() => setShowDatePicker(!showDatePicker)}
-                  className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-medium transition flex items-center gap-2"
-                >
-                  <Calendar className="w-4 h-4" />
-                  <ChevronDown className={`w-4 h-4 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
-                </button>
-              </div>
-            </div>
-            <div className="p-4 bg-white/20 rounded-2xl">
-              <Wallet className="w-8 h-8 text-white" />
-            </div>
-          </div>
+          {/* Revenue Card with Analytics */}
+       {/* Revenue Card with Analytics */}
+<div className="bg-gradient-to-r from-green-600 to-emerald-700 rounded-2xl p-6 mb-6 shadow-lg shadow-green-100">
+  <div className="flex flex-col md:flex-row items-start md:items-center justify-between">
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <Wallet className="w-5 h-5 text-white/80" />
+        <p className="text-white/80 text-sm font-medium">Total Revenue</p>
+      </div>
+      <h2 className="text-4xl font-bold text-white">
+        {loadingAnalytics ? (
+          <Loader2 className="w-8 h-8 text-white animate-spin inline" />
+        ) : (
+          formatCurrency(analyticsData.totalRevenue)
+        )}
+      </h2>
+      <div className="flex items-center gap-3 mt-2 flex-wrap">
+        <p className="text-green-100 text-sm">
+          {selectedPeriod === 'all' ? (
+            <>All Time Revenue</>
+          ) : selectedDate ? (
+            <>{getPeriodLabel(selectedPeriod)} - {formatDateDisplay(selectedDate)}</>
+          ) : (
+            <>{getPeriodLabel(selectedPeriod)}</>
+          )}
+        </p>
+        <button
+          onClick={() => setShowDatePicker(!showDatePicker)}
+          className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white text-sm font-medium transition flex items-center gap-2"
+        >
+          <Calendar className="w-4 h-4" />
+          <ChevronDown className={`w-4 h-4 transition-transform ${showDatePicker ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+    </div>
+    
+    {/* Large Revenue Icon */}
+    <div className="mt-4 md:mt-0">
+      <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+        <Wallet className="w-10 h-10 md:w-12 md:h-12 text-white" />
+      </div>
+    </div>
+  </div>
+</div>
 
-          {/* Date Picker */}
+          {/* Analytics Error Message */}
+          {analyticsError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              {analyticsError}
+            </div>
+          )}
+
+          {/* Date Picker for Analytics */}
           {showDatePicker && (
             <div className="mb-6 p-4 bg-white rounded-2xl border border-gray-200 shadow-sm">
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Period</label>
+                  <select
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
+                  >
+                    {periodOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 block mb-1">End Date</label>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Date</label>
                   <input
                     type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
@@ -1069,8 +1171,6 @@ const RevenueManagement = () => {
                     onClick={() => {
                       setShowDatePicker(false);
                       fetchAnalytics();
-                      fetchTransactions();
-                      fetchWalletTransactions();
                     }}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
                   >
